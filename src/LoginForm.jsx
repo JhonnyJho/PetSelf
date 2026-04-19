@@ -2,9 +2,27 @@ import { useState } from 'react'
 
 const API_URL = 'http://localhost:4000'
 
-const LoginForm = ({ onLogin, onSwitchMode }) => {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+const LoginForm = ({ onLogin, onSwitchMode, formState, setFormState }) => {
+  // Use props if provided (for persistence), otherwise use local state
+  const [localState, setLocalState] = useState({
+    email: formState?.email || '',
+    password: formState?.password || ''
+  })
+
+  // Sync with props when they change
+  const state = formState ? { ...localState, ...formState } : localState
+  const setState = (updates) => {
+    const newState = typeof updates === 'function' ? updates(state) : updates
+    setLocalState(newState)
+    if (setFormState) {
+      setFormState(newState)
+    }
+  }
+
+  const { email, password } = state
+  const setEmail = (val) => setState(prev => ({ ...prev, email: val }))
+  const setPassword = (val) => setState(prev => ({ ...prev, password: val }))
+
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
