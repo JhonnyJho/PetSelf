@@ -61,9 +61,23 @@ const TaskRow = ({ task, onComplete, freezeUntil }) => {
           return (
             <>
               <div className="task-time">{timeLabel}</div>
-              <label className="task-complete">
-                <input className="task-checkbox" type="checkbox" checked={!!task.completed} disabled={disabled} onChange={() => onComplete(task.id)} />
-              </label>
+              <button
+                className={`task-check ${task.completed ? 'checked' : ''} ${disabled ? 'disabled' : ''}`}
+                aria-pressed={!!task.completed}
+                disabled={disabled}
+                onClick={() => onComplete(task.id)}
+                title={task.completed ? 'Completed' : (disabled ? 'Waiting for others' : 'Mark complete')}
+              >
+                {task.completed ? (
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
+                    <path d="M20 6L9 17l-5-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
+                    <circle cx="12" cy="12" r="9" stroke="rgba(255,255,255,0.28)" strokeWidth="1.5" fill="transparent" />
+                  </svg>
+                )}
+              </button>
             </>
           )
         })()}
@@ -159,7 +173,9 @@ export default function TasksPanel({ onClose }) {
   const handleCreate = async () => {
     if (!title || title.trim().length === 0) return
     const xpValue = Math.min(10, Math.max(0, parseInt(xp, 10) || 0))
-    const payload = { title: title.trim(), xp: xpValue, durationSeconds: Math.max(0, parseInt(durationMinutes, 10) || 0) * 60 }
+    // Ensure minimum duration of 5 minutes
+    const durationVal = Math.max(5, parseInt(durationMinutes, 10) || 0)
+    const payload = { title: title.trim(), xp: xpValue, durationSeconds: durationVal * 60 }
     if (selectedFriend) payload.friendId = selectedFriend.id
     try {
       const res = await fetch(`${API_BASE}/api/tasks`, { method: 'POST', headers, body: JSON.stringify(payload) })
@@ -246,17 +262,50 @@ export default function TasksPanel({ onClose }) {
           {tab === 'create' && (
             <div className="create-form">
               <label>Title
-                <input value={title} onChange={(e) => setTitle(e.target.value)} />
+                <input className="form-input" value={title} onChange={(e) => setTitle(e.target.value)} />
               </label>
-              <label>XP
-                <input type="number" min="0" max="10" step="1" value={xp} onChange={(e) => setXp(e.target.value)} />
-              </label>
-              <label>Duration (minutes)
-                <input type="number" value={durationMinutes} onChange={(e) => setDurationMinutes(e.target.value)} />
-              </label>
+              <div className="number-group">
+                <label className="number-label">
+                  <div className="label-text">XP</div>
+                  <div className="number-control">
+                    <button type="button" className="num-btn" onClick={() => setXp((p) => Math.max(0, (Number(p) || 0) - 1))}>−</button>
+                    <input
+                      className="form-input number-input"
+                      type="number"
+                      min="0"
+                      max="10"
+                      step="1"
+                      value={xp}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10) || 0
+                        setXp(Math.max(0, Math.min(10, v)))
+                      }}
+                    />
+                    <button type="button" className="num-btn" onClick={() => setXp((p) => Math.min(10, (Number(p) || 0) + 1))}>+</button>
+                  </div>
+                </label>
+
+                <label className="number-label">
+                  <div className="label-text">Duration (minutes)</div>
+                  <div className="number-control">
+                    <button type="button" className="num-btn" onClick={() => setDurationMinutes((p) => Math.max(5, (Number(p) || 0) - 1))}>−</button>
+                    <input
+                      className="form-input number-input"
+                      type="number"
+                      min="5"
+                      value={durationMinutes}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10) || 0
+                        setDurationMinutes(Math.max(5, v))
+                      }}
+                    />
+                    <button type="button" className="num-btn" onClick={() => setDurationMinutes((p) => (Number(p) || 0) + 1)}>+</button>
+                  </div>
+                </label>
+              </div>
 
               <label>With friend (optional)
-                <input value={friendQuery} onChange={(e) => handleSearchFriends(e.target.value)} placeholder="Search nickname" />
+                <input className="form-input" value={friendQuery} onChange={(e) => handleSearchFriends(e.target.value)} placeholder="Search nickname" />
               </label>
               {friendResults.length > 0 && (
                 <div className="friend-results">

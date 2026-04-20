@@ -6,6 +6,7 @@ const API_BASE = 'http://localhost:4000'
 export default function InventoryPanel({ onClose }) {
   const [items, setItems] = useState([])
   const [search, setSearch] = useState('')
+  const [usingItemId, setUsingItemId] = useState(null)
   const [page, setPage] = useState(0)
   const [rarityFilter, setRarityFilter] = useState('all')
 
@@ -40,6 +41,7 @@ export default function InventoryPanel({ onClose }) {
 
   const useItem = async (id) => {
     if (!token) return
+    setUsingItemId(id)
     try {
       const res = await fetch(`${API_BASE}/api/inventory/use/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
       const body = await res.json()
@@ -56,7 +58,7 @@ export default function InventoryPanel({ onClose }) {
       } else {
         alert(body.error || 'Failed to use item')
       }
-    } catch (e) { console.error('Use item error', e) }
+    } catch (e) { console.error('Use item error', e) } finally { setUsingItemId(null) }
   }
 
   const filtered = items.filter((i) => {
@@ -98,7 +100,15 @@ export default function InventoryPanel({ onClose }) {
               <div className={`item-swatch ${it.rarity || 'common'}`} />
               <div className="item-name">{it.name}</div>
               <div className="item-meta">{it.type} • {it.rarity || it.subtype}</div>
-              {it.type === 'consumable' && !it.consumed && <button className="primary-btn" onClick={() => useItem(it.id)}>Use</button>}
+              {it.type === 'consumable' && !it.consumed && (
+                <button
+                  className="use-btn"
+                  onClick={() => useItem(it.id)}
+                  disabled={usingItemId === it.id}
+                >
+                  {usingItemId === it.id ? 'Using...' : (it.subtype === 'xp' ? `Use +${it.payload?.amount || ''}` : 'Use')}
+                </button>
+              )}
               <button className="remove-button" onClick={() => removeItem(it.id)}>Remove</button>
             </div>
           ))}

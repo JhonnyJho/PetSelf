@@ -613,6 +613,24 @@ canvas {
 
 .inventory-pagination .page-info { color:#cbd5e1 }
 
+/* Use button for consumables */
+.use-btn {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(90deg,#fbbf24,#fb7185);
+  color: #04142a;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform .12s ease, opacity .12s ease;
+}
+.use-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: scale(0.98);
+}
+
+
 /* Tasks panel */
 .tasks-panel {
   position: relative;
@@ -707,6 +725,112 @@ canvas {
 .task-checkbox { 
   width:18px; 
   height:18px 
+}
+
+/* Custom checkmark button for tasks */
+.task-check {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.04);
+  cursor: pointer;
+  transition: transform .12s ease, background .12s ease;
+}
+.task-check:hover { transform: translateY(-2px); }
+.task-check.checked {
+  background: linear-gradient(90deg,#34d399,#06b6d4);
+  border: none;
+  color: #04142a;
+}
+.task-check.disabled { opacity: 0.6; cursor: not-allowed }
+
+/* Styled inputs for create task form */
+.create-form .form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.02);
+  color: #fff;
+  margin-top: 6px;
+}
+.create-form .form-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 6px rgba(56,189,248,0.06);
+  outline: none;
+}
+
+/* Custom number control (XP and Duration) */
+.create-form .number-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.create-form .number-input {
+  width: 96px;
+  padding: 10px 8px;
+  text-align: center;
+}
+.create-form .num-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.02);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+.create-form .num-btn:hover { transform: translateY(-2px); background: rgba(255,255,255,0.04); }
+.create-form .number-input::-webkit-outer-spin-button,
+.create-form .number-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.create-form .number-input { -moz-appearance: textfield; }
+
+/* Centered vertical group for XP and Duration */
+.create-form .number-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+.create-form .number-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 320px;
+}
+.create-form .number-label .label-text {
+  font-size: 0.95rem;
+  color: #cbd5e1;
+  margin-bottom: 6px;
+}
+.create-form .number-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+.create-form .number-input {
+  width: 120px;
+  height: 36px;
+  padding: 8px 10px;
+  text-align: center;
+}
+.create-form .num-btn {
+  width: 36px;
+  height: 36px;
 }
 
 .task-progress { 

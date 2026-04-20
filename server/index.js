@@ -134,11 +134,89 @@ const validatePassword = (password) => typeof password === 'string' && password.
 // JWT ģenerēšana un autorizācijas starpprogrammatūra
 const generateToken = (user) => jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: JWT_EXPIRATION })
 // Middleware, kas pārbauda `Authorization: Bearer <token>` un pievieno `req.user`
-const authMiddleware = (req, res, next) => { const authHeader = req.headers.authorization || ''; const token = authHeader.replace('Bearer ', ''); if (!token) return res.status(401).json({ error: 'Missing authorization token' }); try { const payload = jwt.verify(token, JWT_SECRET); req.user = payload; next() } catch (error) { return res.status(401).json({ error: 'Invalid or expired token' }) } }
+const authMiddleware = (req, res, next) => {
+  const authHeader = req.headers.authorization || ''
+  const token = authHeader.replace('Bearer ', '')
+  if (!token) return res.status(401).json({ error: 'Missing authorization token' })
+  try {
+    const payload = jwt.verify(token, JWT_SECRET)
+    req.user = payload
+    next()
+  } catch (error) {
+    return res.status(401).json({ error: 'Invalid or expired token' })
+  }
+}
 // API maršruti: reģistrācija, pieteikšanās, profila pārvaldība, draugi, uzdevumi, inventārs
 app.get('/', (req, res) => res.json({ status: 'ok', message: 'PostgreSQL auth backend is running' }))
-app.post('/api/setup-moderator', async (req, res) => { const { secret, email, password } = req.body; if (secret !== 'setup_moderator_2026') return res.status(403).json({ error: 'Invalid secret.' }); if (!validateEmail(email) || !validatePassword(password)) return res.status(400).json({ error: 'Provide valid email and password (min 8 chars).' }); try { await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user'"); const existing = await pool.query('SELECT id FROM users WHERE role = $1', ['moderator']); if (existing.rows.length > 0) return res.status(409).json({ error: 'Moderator already exists.' }); const passwordHash = await bcrypt.hash(password, 10); const result = await pool.query('INSERT INTO users (email, password_hash, role, nickname) VALUES ($1, $2, $3, $4) RETURNING id, email, role, created_at', [email.toLowerCase().trim(), passwordHash, 'moderator', 'moderator']); const user = result.rows[0]; res.status(201).json({ user: { id: user.id, email: user.email, role: user.role, createdAt: user.created_at } }) } catch (error) { if (error.code === '23505') return res.status(409).json({ error: 'Email already registered.' }); console.error('Setup moderator error:', error); res.status(500).json({ error: 'Unable to create moderator.' }) } })
-app.post('/api/register', async (req, res) => { const { email, password, nickname } = req.body; if (!validateEmail(email) || !validatePassword(password)) return res.status(400).json({ error: 'Provide a valid email and a password with at least 8 characters.' }); const passwordHash = await bcrypt.hash(password, 10); if (req.body.role === 'moderator') return res.status(403).json({ error: "You cannot create a moderator account." }); const role = 'user'; try { await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user'"); let nickToStore = null; if (nickname && typeof nickname === 'string') { const trimmedNick = nickname.trim().toLowerCase(); if (trimmedNick.length < 4 || trimmedNick.length > 7) return res.status(400).json({ error: 'Nickname must be 4-7 characters.' }); const nickCheck = await pool.query('SELECT id FROM users WHERE LOWER(nickname) = $1', [trimmedNick]); if (nickCheck.rows.length > 0) return res.status(409).json({ error: 'Nickname already taken.' }); nickToStore = trimmedNick } const result = await pool.query('INSERT INTO users (email, password_hash, role, nickname) VALUES ($1, $2, $3, $4) RETURNING id, email, role, created_at', [email.toLowerCase().trim(), passwordHash, role, nickToStore]); const user = result.rows[0]; try { const candies = [ { name: 'Common Exp Candy', amount: 5, rarity: 'common', color: 'green', description: 'A small green sphere. Grants 5 XP.' }, { name: 'Uncommon Exp Candy', amount: 10, rarity: 'uncommon', color: 'blue', description: 'A small blue sphere. Grants 10 XP.' }, { name: 'Rare Exp Candy', amount: 15, rarity: 'rare', color: 'red', description: 'A small red sphere. Grants 15 XP.' }, ]; for (const c of candies) { await pool.query('INSERT INTO items (user_id, name, type, subtype, payload, rarity) VALUES ($1,$2,$3,$4,$5,$6)', [user.id, c.name, 'consumable', 'xp', JSON.stringify({ amount: c.amount, description: c.description, appearance: 'sphere', color: c.color }), c.rarity]) } } catch (e) { console.error('Failed to insert starter candies for user', user.id, e) } res.status(201).json({ user: { id: user.id, email: user.email, role: user.role, createdAt: user.created_at } }) } catch (error) { if (error.code === '23505') return res.status(409).json({ error: 'Email or nickname already registered.' }); console.error('Register error:', error); res.status(500).json({ error: 'Unable to create user.' }) } })
+app.post('/api/setup-moderator', async (req, res) => {
+  const { secret, email, password } = req.body
+  if (secret !== 'setup_moderator_2026')
+    return res.status(403).json({ error: 'Invalid secret.' })
+  if (!validateEmail(email) || !validatePassword(password))
+    return res.status(400).json({ error: 'Provide valid email and password (min 8 chars).' })
+  try {
+    await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user'")
+    const existing = await pool.query('SELECT id FROM users WHERE role = $1', ['moderator'])
+    if (existing.rows.length > 0) return res.status(409).json({ error: 'Moderator already exists.' })
+    const passwordHash = await bcrypt.hash(password, 10)
+    const result = await pool.query(
+      'INSERT INTO users (email, password_hash, role, nickname) VALUES ($1, $2, $3, $4) RETURNING id, email, role, created_at',
+      [email.toLowerCase().trim(), passwordHash, 'moderator', 'moderator']
+    )
+    const user = result.rows[0]
+    res.status(201).json({ user: { id: user.id, email: user.email, role: user.role, createdAt: user.created_at } })
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'Email already registered.' })
+    console.error('Setup moderator error:', error)
+    res.status(500).json({ error: 'Unable to create moderator.' })
+  }
+})
+app.post('/api/register', async (req, res) => {
+  const { email, password, nickname } = req.body
+  if (!validateEmail(email) || !validatePassword(password))
+    return res.status(400).json({ error: 'Provide a valid email and a password with at least 8 characters.' })
+  const passwordHash = await bcrypt.hash(password, 10)
+  if (req.body.role === 'moderator')
+    return res.status(403).json({ error: "You cannot create a moderator account." })
+  const role = 'user'
+  try {
+    await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user'")
+    let nickToStore = null
+    if (nickname && typeof nickname === 'string') {
+      const trimmedNick = nickname.trim().toLowerCase()
+      if (trimmedNick.length < 4 || trimmedNick.length > 7)
+        return res.status(400).json({ error: 'Nickname must be 4-7 characters.' })
+      const nickCheck = await pool.query('SELECT id FROM users WHERE LOWER(nickname) = $1', [trimmedNick])
+      if (nickCheck.rows.length > 0) return res.status(409).json({ error: 'Nickname already taken.' })
+      nickToStore = trimmedNick
+    }
+    const result = await pool.query(
+      'INSERT INTO users (email, password_hash, role, nickname) VALUES ($1, $2, $3, $4) RETURNING id, email, role, created_at',
+      [email.toLowerCase().trim(), passwordHash, role, nickToStore]
+    )
+    const user = result.rows[0]
+    try {
+      const candies = [
+        { name: 'Common Exp Candy', amount: 5, rarity: 'common', color: 'green', description: 'A small green sphere. Grants 5 XP.' },
+        { name: 'Uncommon Exp Candy', amount: 10, rarity: 'uncommon', color: 'blue', description: 'A small blue sphere. Grants 10 XP.' },
+        { name: 'Rare Exp Candy', amount: 15, rarity: 'rare', color: 'red', description: 'A small red sphere. Grants 15 XP.' },
+      ]
+      for (const c of candies) {
+        await pool.query(
+          'INSERT INTO items (user_id, name, type, subtype, payload, rarity) VALUES ($1,$2,$3,$4,$5,$6)',
+          [user.id, c.name, 'consumable', 'xp', JSON.stringify({ amount: c.amount, description: c.description, appearance: 'sphere', color: c.color }), c.rarity]
+        )
+      }
+    } catch (e) {
+      console.error('Failed to insert starter candies for user', user.id, e)
+    }
+    res.status(201).json({ user: { id: user.id, email: user.email, role: user.role, createdAt: user.created_at } })
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'Email or nickname already registered.' })
+    console.error('Register error:', error)
+    res.status(500).json({ error: 'Unable to create user.' })
+  }
+})
 // Izveido lietotāju un mājdzīvnieku atomiski — ja viena daļa neizdodas, tiek atcelts viss
 // Create user and pet together in a single transactional endpoint so we only persist a user when the pet is created successfully.
 app.post('/api/create-pet', async (req, res) => {
@@ -223,11 +301,79 @@ app.post('/api/create-pet', async (req, res) => {
     client.release()
   }
 })
-app.post('/api/check-email', async (req, res) => { const { email } = req.body; if (!email || typeof email !== 'string') return res.status(400).json({ error: 'Email is required.' }); try { const normalized = email.toLowerCase().trim(); const result = await pool.query('SELECT id, email FROM users WHERE email = $1', [normalized]); if (result.rows.length > 0) return res.json({ exists: true, user: { id: result.rows[0].id, email: result.rows[0].email } }); res.json({ exists: false }) } catch (err) { console.error('Check email error:', err); res.status(500).json({ error: 'Unable to check email.' }) } })
-app.post('/api/login', async (req, res) => { const { email, password } = req.body; if (!validateEmail(email) || !validatePassword(password)) return res.status(400).json({ error: 'Provide a valid email and password.' }); try { const result = await pool.query('SELECT id, email, nickname, password_hash, role FROM users WHERE email = $1', [email.toLowerCase().trim()]); const user = result.rows[0]; if (!user) return res.status(401).json({ error: 'Invalid email or password.' }); const passwordMatches = await bcrypt.compare(password, user.password_hash); if (!passwordMatches) return res.status(401).json({ error: 'Invalid email or password.' }); const petResult = await pool.query('SELECT id, name, appearance, color, gender, xp, level FROM pets WHERE user_id = $1', [user.id]); const token = generateToken(user); res.json({ token, user: { id: user.id, email: user.email, nickname: user.nickname, role: user.role, pet: petResult.rows[0] || null } }) } catch (error) { console.error('Login error:', error); res.status(500).json({ error: 'Unable to log in.' }) } })
-app.get('/api/profile', authMiddleware, async (req, res) => { try { const result = await pool.query('SELECT id, email, nickname, role, created_at FROM users WHERE id = $1', [req.user.userId]); const user = result.rows[0]; if (!user) return res.status(404).json({ error: 'User not found.' }); const petResult = await pool.query('SELECT id, name, appearance, color, gender, xp, level FROM pets WHERE user_id = $1', [req.user.userId]); res.json({ user: { id: user.id, email: user.email, nickname: user.nickname, createdAt: user.created_at, pet: petResult.rows[0] || null } }) } catch (error) { console.error('Profile error:', error); res.status(500).json({ error: 'Unable to load profile.' }) } })
-app.post('/api/check-nickname', async (req, res) => { const { nickname } = req.body; if (!nickname || typeof nickname !== 'string') return res.status(400).json({ error: 'Nickname is required.' }); const trimmed = nickname.trim().toLowerCase(); if (trimmed.length < 4 || trimmed.length > 7) return res.status(400).json({ error: 'Nickname must be 4-7 characters.' }); try { const result = await pool.query('SELECT id, email FROM users WHERE LOWER(nickname) = $1', [trimmed]); if (result.rows.length > 0) return res.json({ exists: true, user: { id: result.rows[0].id, email: result.rows[0].email } }); res.json({ exists: false }) } catch (error) { console.error('Check nickname error:', error); res.status(500).json({ error: 'Unable to check nickname.' }) } })
-app.post('/api/set-nickname', async (req, res) => { const { email, nickname } = req.body; if (!email || !nickname || typeof nickname !== 'string') return res.status(400).json({ error: 'Email and nickname are required.' }); const trimmed = nickname.trim().toLowerCase(); if (trimmed.length < 4 || trimmed.length > 7) return res.status(400).json({ error: 'Nickname must be 4-7 characters.' }); try { const checkResult = await pool.query('SELECT id FROM users WHERE LOWER(nickname) = $1', [trimmed]); if (checkResult.rows.length > 0) return res.status(409).json({ error: 'Nickname already taken.' }); await pool.query('UPDATE users SET nickname = $1 WHERE email = $2', [trimmed, email.toLowerCase().trim()]); res.json({ success: true, nickname: trimmed }) } catch (error) { console.error('Set nickname error:', error); res.status(500).json({ error: 'Unable to set nickname.' }) } })
+
+app.post('/api/check-email', async (req, res) => { const { email } = req.body; 
+if (!email || typeof email !== 'string') 
+  return res.status(400).json({ error: 'Email is required.' }); 
+try { const normalized = email.toLowerCase().trim(); 
+  const result = await pool.query('SELECT id, email FROM users WHERE email = $1', [normalized]); 
+  if (result.rows.length > 0) 
+    return res.json({ exists: true, user: { id: result.rows[0].id, email: result.rows[0].email } });
+  
+  res.json({ exists: false }) } catch (err) { console.error('Check email error:', err); 
+    res.status(500).json({ error: 'Unable to check email.' }) 
+  } 
+})
+
+app.post('/api/login', async (req, res) => {
+  const { email, password } = req.body
+  if (!validateEmail(email) || !validatePassword(password))
+    return res.status(400).json({ error: 'Provide a valid email and password.' })
+  try {
+    const result = await pool.query('SELECT id, email, nickname, password_hash, role FROM users WHERE email = $1', [email.toLowerCase().trim()])
+    const user = result.rows[0]
+    if (!user) return res.status(401).json({ error: 'Invalid email or password.' })
+    const passwordMatches = await bcrypt.compare(password, user.password_hash)
+    if (!passwordMatches) return res.status(401).json({ error: 'Invalid email or password.' })
+    const petResult = await pool.query('SELECT id, name, appearance, color, gender, xp, level FROM pets WHERE user_id = $1', [user.id])
+    const token = generateToken(user)
+    res.json({ token, user: { id: user.id, email: user.email, nickname: user.nickname, role: user.role, pet: petResult.rows[0] || null } })
+  } catch (error) {
+    console.error('Login error:', error)
+    res.status(500).json({ error: 'Unable to log in.' })
+  }
+})
+app.get('/api/profile', authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, email, nickname, role, created_at FROM users WHERE id = $1', [req.user.userId])
+    const user = result.rows[0]
+    if (!user) return res.status(404).json({ error: 'User not found.' })
+    const petResult = await pool.query('SELECT id, name, appearance, color, gender, xp, level FROM pets WHERE user_id = $1', [req.user.userId])
+    res.json({ user: { id: user.id, email: user.email, nickname: user.nickname, createdAt: user.created_at, pet: petResult.rows[0] || null } })
+  } catch (error) {
+    console.error('Profile error:', error)
+    res.status(500).json({ error: 'Unable to load profile.' })
+  }
+})
+app.post('/api/check-nickname', async (req, res) => {
+  const { nickname } = req.body
+  if (!nickname || typeof nickname !== 'string') return res.status(400).json({ error: 'Nickname is required.' })
+  const trimmed = nickname.trim().toLowerCase()
+  if (trimmed.length < 4 || trimmed.length > 7) return res.status(400).json({ error: 'Nickname must be 4-7 characters.' })
+  try {
+    const result = await pool.query('SELECT id, email FROM users WHERE LOWER(nickname) = $1', [trimmed])
+    if (result.rows.length > 0) return res.json({ exists: true, user: { id: result.rows[0].id, email: result.rows[0].email } })
+    res.json({ exists: false })
+  } catch (error) {
+    console.error('Check nickname error:', error)
+    res.status(500).json({ error: 'Unable to check nickname.' })
+  }
+})
+app.post('/api/set-nickname', async (req, res) => {
+  const { email, nickname } = req.body
+  if (!email || !nickname || typeof nickname !== 'string') return res.status(400).json({ error: 'Email and nickname are required.' })
+  const trimmed = nickname.trim().toLowerCase()
+  if (trimmed.length < 4 || trimmed.length > 7) return res.status(400).json({ error: 'Nickname must be 4-7 characters.' })
+  try {
+    const checkResult = await pool.query('SELECT id FROM users WHERE LOWER(nickname) = $1', [trimmed])
+    if (checkResult.rows.length > 0) return res.status(409).json({ error: 'Nickname already taken.' })
+    await pool.query('UPDATE users SET nickname = $1 WHERE email = $2', [trimmed, email.toLowerCase().trim()])
+    res.json({ success: true, nickname: trimmed })
+  } catch (error) {
+    console.error('Set nickname error:', error)
+    res.status(500).json({ error: 'Unable to set nickname.' })
+  }
+})
 app.delete('/api/users/:userId', authMiddleware, async (req, res) => {
   try {
     const userResult = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.userId])
@@ -500,22 +646,367 @@ const ensureSystemUserAndTasks = async () => {
 ensureSystemUserAndTasks()
 
 // Uzdevumu (tasks) API: iegūst un pārvalda lietotāja uzdevumus un balvas
-app.get('/api/tasks', authMiddleware, async (req, res) => { try { const userId = req.user.userId; const result = await pool.query(`SELECT t.id, t.title, t.xp, t.duration_seconds, t.created_at, t.is_shared, t.is_system, tp.completed, tp.completed_at, t.created_by_user_id, (SELECT bool_and(tp2.completed) FROM task_participants tp2 WHERE tp2.task_id = t.id) AS all_completed FROM tasks t JOIN task_participants tp ON t.id = tp.task_id WHERE tp.user_id = $1 ORDER BY t.created_at DESC`, [userId]); const tasks = result.rows.map((r) => { const createdMs = new Date(r.created_at).getTime(); const nowMs = Date.now(); const elapsedSec = Math.floor((nowMs - createdMs) / 1000); const remainingSeconds = r.duration_seconds != null ? Math.max(r.duration_seconds - elapsedSec, 0) : null; return { id: r.id, title: r.title, xp: r.xp, durationSeconds: r.duration_seconds, createdAt: r.created_at, isShared: r.is_shared, isSystem: r.is_system, completed: r.completed, allCompleted: r.all_completed, completedAt: r.completed_at, createdBy: r.created_by_user_id, remainingSeconds } }); res.json({ tasks }) } catch (err) { console.error('Get tasks error:', err); res.status(500).json({ error: 'Unable to fetch tasks.' }) } })
+app.get('/api/tasks', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId
+    const result = await pool.query(
+      `SELECT t.id, t.title, t.xp, t.duration_seconds, t.created_at, t.is_shared, t.is_system, tp.completed, tp.completed_at, t.created_by_user_id, (SELECT bool_and(tp2.completed) FROM task_participants tp2 WHERE tp2.task_id = t.id) AS all_completed FROM tasks t JOIN task_participants tp ON t.id = tp.task_id WHERE tp.user_id = $1 ORDER BY t.created_at DESC`,
+      [userId]
+    )
+    const tasks = result.rows.map((r) => {
+      const createdMs = new Date(r.created_at).getTime()
+      const nowMs = Date.now()
+      const elapsedSec = Math.floor((nowMs - createdMs) / 1000)
+      const remainingSeconds = r.duration_seconds != null ? Math.max(r.duration_seconds - elapsedSec, 0) : null
+      return {
+        id: r.id,
+        title: r.title,
+        xp: r.xp,
+        durationSeconds: r.duration_seconds,
+        createdAt: r.created_at,
+        isShared: r.is_shared,
+        isSystem: r.is_system,
+        completed: r.completed,
+        allCompleted: r.all_completed,
+        completedAt: r.completed_at,
+        createdBy: r.created_by_user_id,
+        remainingSeconds,
+      }
+    })
+    res.json({ tasks })
+  } catch (err) {
+    console.error('Get tasks error:', err)
+    res.status(500).json({ error: 'Unable to fetch tasks.' })
+  }
+})
 
-app.post('/api/tasks', authMiddleware, async (req, res) => { try { const userId = req.user.userId; const { title, xp = 5, durationSeconds = null, friendId = null } = req.body; const xpValueToStore = Math.min(10, Math.max(0, parseInt(xp, 10) || 0)); if (!title || typeof title !== 'string') return res.status(400).json({ error: 'Title is required.' }); let isShared = false; const participants = [userId]; if (friendId) { const friendIdNum = parseInt(friendId, 10); if (isNaN(friendIdNum)) return res.status(400).json({ error: 'Invalid friendId.' }); const friendship = await pool.query(`SELECT id FROM friend_requests WHERE ((from_user_id = $1 AND to_user_id = $2) OR (from_user_id = $2 AND to_user_id = $1)) AND status = $3`, [userId, friendIdNum, 'accepted']); if (friendship.rows.length === 0) return res.status(403).json({ error: 'You are not friends with that user.' }); isShared = true; participants.push(friendIdNum) } const titleTrim = title.trim().substring(0, 255); let task; try { const insertTask = await pool.query('INSERT INTO tasks (title, xp, duration_seconds, created_by_user_id, is_shared) VALUES ($1, $2, $3, $4, $5) RETURNING id, title, xp, duration_seconds, created_at, is_shared', [titleTrim, xpValueToStore, durationSeconds, userId, isShared]); task = insertTask.rows[0] } catch (err) { if (err.code === '23505') { const existing = await pool.query('SELECT id, title, xp, duration_seconds, created_at, is_shared FROM tasks WHERE created_by_user_id = $1 AND title = $2 LIMIT 1', [userId, titleTrim]); task = existing.rows[0] } else throw err } for (const uId of participants) { await pool.query('INSERT INTO task_participants (task_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [task.id, uId]) } res.status(201).json({ task }) } catch (err) { console.error('Create task error:', err); res.status(500).json({ error: 'Unable to create task.' }) } })
+app.post('/api/tasks', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId
+    const { title, xp = 5, durationSeconds = null, friendId = null } = req.body
+    const xpValueToStore = Math.min(10, Math.max(0, parseInt(xp, 10) || 0))
+    if (!title || typeof title !== 'string') return res.status(400).json({ error: 'Title is required.' })
+    let isShared = false
+    const participants = [userId]
+    if (friendId) {
+      const friendIdNum = parseInt(friendId, 10)
+      if (isNaN(friendIdNum)) return res.status(400).json({ error: 'Invalid friendId.' })
+      const friendship = await pool.query(
+        `SELECT id FROM friend_requests WHERE ((from_user_id = $1 AND to_user_id = $2) OR (from_user_id = $2 AND to_user_id = $1)) AND status = $3`,
+        [userId, friendIdNum, 'accepted']
+      )
+      if (friendship.rows.length === 0) return res.status(403).json({ error: 'You are not friends with that user.' })
+      isShared = true
+      participants.push(friendIdNum)
+    }
+    const titleTrim = title.trim().substring(0, 255)
+    let task
+    try {
+      const insertTask = await pool.query(
+        'INSERT INTO tasks (title, xp, duration_seconds, created_by_user_id, is_shared) VALUES ($1, $2, $3, $4, $5) RETURNING id, title, xp, duration_seconds, created_at, is_shared',
+        [titleTrim, xpValueToStore, durationSeconds, userId, isShared]
+      )
+      task = insertTask.rows[0]
+    } catch (err) {
+      if (err.code === '23505') {
+        const existing = await pool.query(
+          'SELECT id, title, xp, duration_seconds, created_at, is_shared FROM tasks WHERE created_by_user_id = $1 AND title = $2 LIMIT 1',
+          [userId, titleTrim]
+        )
+        task = existing.rows[0]
+      } else throw err
+    }
+    for (const uId of participants) {
+      await pool.query('INSERT INTO task_participants (task_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [task.id, uId])
+    }
+    res.status(201).json({ task })
+  } catch (err) {
+    console.error('Create task error:', err)
+    res.status(500).json({ error: 'Unable to create task.' })
+  }
+})
 
-app.post('/api/tasks/:id/complete', authMiddleware, async (req, res) => { const client = await pool.connect(); try { await client.query('BEGIN'); const userId = req.user.userId; const taskId = parseInt(req.params.id, 10); if (isNaN(taskId)) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Invalid task id.' }) } const rowRes = await client.query('SELECT tp.id AS tp_id, tp.completed, t.xp, t.is_shared, t.is_system FROM task_participants tp JOIN tasks t ON t.id = tp.task_id WHERE tp.task_id = $1 AND tp.user_id = $2 FOR UPDATE', [taskId, userId]); if (rowRes.rows.length === 0) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Task or participant not found.' }) } const row = rowRes.rows[0]; if (row.completed) { await client.query('COMMIT'); return res.json({ success: true, message: 'Already completed.' }) } await client.query('UPDATE task_participants SET completed = $1, completed_at = NOW() WHERE id = $2', [true, row.tp_id]); const allRes = await client.query('SELECT bool_and(completed) AS all_completed FROM task_participants WHERE task_id = $1', [taskId]); const allCompleted = allRes.rows[0].all_completed; const pickSystemDrop = () => { const drops = [ { name: 'Small XP Pack', type: 'consumable', subtype: 'xp', payload: { amount: 10 } }, { name: 'Freeze Timer', type: 'consumable', subtype: 'freeze', payload: { durationSeconds: 15 } }, { name: 'XP Boost', type: 'consumable', subtype: 'boost', payload: { multiplier: 1.5, uses: 3, expiresHours: 24 } }, ]; return drops[Math.floor(Math.random() * drops.length)] }; const handleAwardToUser = async (uId, baseXp) => { const petRow = await client.query('SELECT id, xp, level FROM pets WHERE user_id = $1 FOR UPDATE', [uId]); const prevXp = petRow.rows.length > 0 ? (petRow.rows[0].xp || 0) : 0; const prevLevel = getLevelProgress(prevXp).level; const boostRes = await client.query("SELECT id, multiplier, uses_remaining, expires_at FROM active_effects WHERE user_id = $1 AND effect_type = 'boost' AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC LIMIT 1 FOR UPDATE", [uId]); let multiplier = 1; let boostRow = null; if (boostRes.rows.length > 0) { boostRow = boostRes.rows[0]; multiplier = Number(boostRow.multiplier) || 1 } const xpToApply = Math.round(Math.min(10, parseInt(baseXp, 10) || 0) * multiplier); const petUpdate = await client.query('UPDATE pets SET xp = COALESCE(xp,0) + $1 WHERE user_id = $2 RETURNING id, xp', [xpToApply, uId]); const newXp = petUpdate.rows.length > 0 ? petUpdate.rows[0].xp : prevXp; if (boostRow) { if (boostRow.uses_remaining == null) {} else if (boostRow.uses_remaining <= 1) { await client.query('DELETE FROM active_effects WHERE id = $1', [boostRow.id]) } else { await client.query('UPDATE active_effects SET uses_remaining = uses_remaining - 1 WHERE id = $1', [boostRow.id]) } } const newLevel = getLevelProgress(newXp).level; let awardedItem = null; if (newLevel > prevLevel) { await client.query('UPDATE pets SET level = $1 WHERE user_id = $2', [newLevel, uId]); const itemName = `Level ${newLevel} Reward`; const insertIt = await client.query('INSERT INTO items (user_id, name, type, subtype, payload) VALUES ($1,$2,$3,$4,$5) RETURNING id', [uId, itemName, 'eternal', 'level', JSON.stringify({ level: newLevel })]); awardedItem = insertIt.rows[0] } return { userId: uId, xpApplied: xpToApply, prevXp, newXp, levelUp: newLevel > prevLevel, awardedItem } }; if (row.is_shared) { if (!allCompleted) { await client.query('COMMIT'); return res.json({ success: true, message: 'Marked completed. Waiting for other participants.', allCompleted: false }) } const parts = await client.query('SELECT user_id FROM task_participants WHERE task_id = $1', [taskId]); const userIds = parts.rows.map((r) => r.user_id); const results = []; for (const uId of userIds) { const r = await handleAwardToUser(uId, row.xp); results.push(r) } const awardedItems = []; for (const uId of userIds) { const chance = row.is_system ? 0.15 : 0.05; if (Math.random() < chance) { const drop = pickSystemDrop(); const insertIt = await client.query('INSERT INTO items (user_id, name, type, subtype, payload) VALUES ($1,$2,$3,$4,$5) RETURNING id', [uId, drop.name, drop.type, drop.subtype, JSON.stringify(drop.payload)]); awardedItems.push({ userId: uId, itemId: insertIt.rows[0].id }) } } await client.query('COMMIT'); return res.json({ success: true, allCompleted: true, results, awardedItems }) } const singleResult = await handleAwardToUser(userId, row.xp); let dropAward = null; const dropChance = row.is_system ? 0.15 : 0.05; if (Math.random() < dropChance) { const drop = pickSystemDrop(); const insertIt = await client.query('INSERT INTO items (user_id, name, type, subtype, payload) VALUES ($1,$2,$3,$4,$5) RETURNING id, name, type, subtype, payload', [userId, drop.name, drop.type, drop.subtype, JSON.stringify(drop.payload)]); dropAward = insertIt.rows[0] } await client.query('COMMIT'); return res.json({ success: true, xpAwarded: singleResult.xpApplied, petXp: singleResult.newXp, levelUp: singleResult.levelUp, awardedItem: singleResult.awardedItem, dropAward }) } catch (err) { try { await client.query('ROLLBACK') } catch (e) {} console.error('Complete task error:', err); res.status(500).json({ error: 'Unable to complete task.' }) } finally { client.release() } })
+app.post('/api/tasks/:id/complete', authMiddleware, async (req, res) => {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const userId = req.user.userId
+    const taskId = parseInt(req.params.id, 10)
+    if (isNaN(taskId)) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ error: 'Invalid task id.' })
+    }
+    const rowRes = await client.query(
+      'SELECT tp.id AS tp_id, tp.completed, t.xp, t.is_shared, t.is_system FROM task_participants tp JOIN tasks t ON t.id = tp.task_id WHERE tp.task_id = $1 AND tp.user_id = $2 FOR UPDATE',
+      [taskId, userId]
+    )
+    if (rowRes.rows.length === 0) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ error: 'Task or participant not found.' })
+    }
+    const row = rowRes.rows[0]
+    if (row.completed) {
+      await client.query('COMMIT')
+      return res.json({ success: true, message: 'Already completed.' })
+    }
+    await client.query('UPDATE task_participants SET completed = $1, completed_at = NOW() WHERE id = $2', [true, row.tp_id])
+    const allRes = await client.query('SELECT bool_and(completed) AS all_completed FROM task_participants WHERE task_id = $1', [taskId])
+    const allCompleted = allRes.rows[0].all_completed
 
-app.post('/api/tasks/seed', authMiddleware, async (req, res) => { try { const userId = req.user.userId; const defaults = [ { title: 'Get out of bed', xp: 8, durationSeconds: 60 * 60 }, { title: 'Brush your teeth', xp: 5, durationSeconds: 60 * 10 }, { title: 'Drink a glass of water', xp: 3, durationSeconds: 60 * 5 }, { title: 'Make your bed', xp: 4, durationSeconds: 60 * 10 }, ]; for (const t of defaults) { const titleTrim = t.title.trim(); let taskId = null; const found = await pool.query('SELECT id FROM tasks WHERE created_by_user_id = $1 AND title = $2 LIMIT 1', [userId, titleTrim]); if (found.rows.length > 0) { taskId = found.rows[0].id } else { try { const it = await pool.query('INSERT INTO tasks (title, xp, duration_seconds, created_by_user_id, is_shared) VALUES ($1, $2, $3, $4, $5) RETURNING id', [titleTrim, t.xp, t.durationSeconds, userId, false]); taskId = it.rows[0].id } catch (e) { if (e.code === '23505') { const sel = await pool.query('SELECT id FROM tasks WHERE created_by_user_id = $1 AND title = $2 LIMIT 1', [userId, titleTrim]); if (sel.rows.length > 0) taskId = sel.rows[0].id } else { throw e } } } if (taskId) { await pool.query('INSERT INTO task_participants (task_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [taskId, userId]) } } res.json({ seeded: true }) } catch (err) { console.error('Seed tasks error:', err); res.status(500).json({ error: 'Unable to seed tasks.' }) } })
+    const pickSystemDrop = () => {
+      const drops = [
+        { name: 'Small XP Pack', type: 'consumable', subtype: 'xp', payload: { amount: 10 } },
+        { name: 'Freeze Timer', type: 'consumable', subtype: 'freeze', payload: { durationSeconds: 15 } },
+        { name: 'XP Boost', type: 'consumable', subtype: 'boost', payload: { multiplier: 1.5, uses: 3, expiresHours: 24 } },
+      ]
+      return drops[Math.floor(Math.random() * drops.length)]
+    }
+
+    const handleAwardToUser = async (uId, baseXp) => {
+      const petRow = await client.query('SELECT id, xp, level FROM pets WHERE user_id = $1 FOR UPDATE', [uId])
+      const prevXp = petRow.rows.length > 0 ? (petRow.rows[0].xp || 0) : 0
+      const prevLevel = getLevelProgress(prevXp).level
+      const boostRes = await client.query(
+        "SELECT id, multiplier, uses_remaining, expires_at FROM active_effects WHERE user_id = $1 AND effect_type = 'boost' AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+        [uId]
+      )
+      let multiplier = 1
+      let boostRow = null
+      if (boostRes.rows.length > 0) {
+        boostRow = boostRes.rows[0]
+        multiplier = Number(boostRow.multiplier) || 1
+      }
+      const xpToApply = Math.round(Math.min(10, parseInt(baseXp, 10) || 0) * multiplier)
+      const petUpdate = await client.query('UPDATE pets SET xp = COALESCE(xp,0) + $1 WHERE user_id = $2 RETURNING id, xp', [xpToApply, uId])
+      const newXp = petUpdate.rows.length > 0 ? petUpdate.rows[0].xp : prevXp
+      if (boostRow) {
+        if (boostRow.uses_remaining == null) {
+        } else if (boostRow.uses_remaining <= 1) {
+          await client.query('DELETE FROM active_effects WHERE id = $1', [boostRow.id])
+        } else {
+          await client.query('UPDATE active_effects SET uses_remaining = uses_remaining - 1 WHERE id = $1', [boostRow.id])
+        }
+      }
+      const newLevel = getLevelProgress(newXp).level
+      let awardedItem = null
+      if (newLevel > prevLevel) {
+        await client.query('UPDATE pets SET level = $1 WHERE user_id = $2', [newLevel, uId])
+        const itemName = `Level ${newLevel} Reward`
+        const insertIt = await client.query('INSERT INTO items (user_id, name, type, subtype, payload) VALUES ($1,$2,$3,$4,$5) RETURNING id', [uId, itemName, 'eternal', 'level', JSON.stringify({ level: newLevel })])
+        awardedItem = insertIt.rows[0]
+      }
+      return { userId: uId, xpApplied: xpToApply, prevXp, newXp, levelUp: newLevel > prevLevel, awardedItem }
+    }
+
+    if (row.is_shared) {
+      if (!allCompleted) {
+        await client.query('COMMIT')
+        return res.json({ success: true, message: 'Marked completed. Waiting for other participants.', allCompleted: false })
+      }
+      const parts = await client.query('SELECT user_id FROM task_participants WHERE task_id = $1', [taskId])
+      const userIds = parts.rows.map((r) => r.user_id)
+      const results = []
+      for (const uId of userIds) {
+        const r = await handleAwardToUser(uId, row.xp)
+        results.push(r)
+      }
+      const awardedItems = []
+      for (const uId of userIds) {
+        const chance = row.is_system ? 0.15 : 0.05
+        if (Math.random() < chance) {
+          const drop = pickSystemDrop()
+          const insertIt = await client.query('INSERT INTO items (user_id, name, type, subtype, payload) VALUES ($1,$2,$3,$4,$5) RETURNING id', [uId, drop.name, drop.type, drop.subtype, JSON.stringify(drop.payload)])
+          awardedItems.push({ userId: uId, itemId: insertIt.rows[0].id })
+        }
+      }
+      await client.query('COMMIT')
+      return res.json({ success: true, allCompleted: true, results, awardedItems })
+    }
+
+    const singleResult = await handleAwardToUser(userId, row.xp)
+    let dropAward = null
+    const dropChance = row.is_system ? 0.15 : 0.05
+    if (Math.random() < dropChance) {
+      const drop = pickSystemDrop()
+      const insertIt = await client.query('INSERT INTO items (user_id, name, type, subtype, payload) VALUES ($1,$2,$3,$4,$5) RETURNING id, name, type, subtype, payload', [userId, drop.name, drop.type, drop.subtype, JSON.stringify(drop.payload)])
+      dropAward = insertIt.rows[0]
+    }
+    await client.query('COMMIT')
+    return res.json({ success: true, xpAwarded: singleResult.xpApplied, petXp: singleResult.newXp, levelUp: singleResult.levelUp, awardedItem: singleResult.awardedItem, dropAward })
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK')
+    } catch (e) {
+    }
+    console.error('Complete task error:', err)
+    res.status(500).json({ error: 'Unable to complete task.' })
+  } finally {
+    client.release()
+  }
+})
+
+app.post('/api/tasks/seed', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId
+    const defaults = [
+      { title: 'Get out of bed', xp: 8, durationSeconds: 60 * 60 },
+      { title: 'Brush your teeth', xp: 5, durationSeconds: 60 * 10 },
+      { title: 'Drink a glass of water', xp: 3, durationSeconds: 60 * 5 },
+      { title: 'Make your bed', xp: 4, durationSeconds: 60 * 10 },
+    ]
+    for (const t of defaults) {
+      const titleTrim = t.title.trim()
+      let taskId = null
+      const found = await pool.query('SELECT id FROM tasks WHERE created_by_user_id = $1 AND title = $2 LIMIT 1', [userId, titleTrim])
+      if (found.rows.length > 0) {
+        taskId = found.rows[0].id
+      } else {
+        try {
+          const it = await pool.query('INSERT INTO tasks (title, xp, duration_seconds, created_by_user_id, is_shared) VALUES ($1, $2, $3, $4, $5) RETURNING id', [titleTrim, t.xp, t.durationSeconds, userId, false])
+          taskId = it.rows[0].id
+        } catch (e) {
+          if (e.code === '23505') {
+            const sel = await pool.query('SELECT id FROM tasks WHERE created_by_user_id = $1 AND title = $2 LIMIT 1', [userId, titleTrim])
+            if (sel.rows.length > 0) taskId = sel.rows[0].id
+          } else {
+            throw e
+          }
+        }
+      }
+      if (taskId) {
+        await pool.query('INSERT INTO task_participants (task_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [taskId, userId])
+      }
+    }
+    res.json({ seeded: true })
+  } catch (err) {
+    console.error('Seed tasks error:', err)
+    res.status(500).json({ error: 'Unable to seed tasks.' })
+  }
+})
 
 // Inventāra API: items — iegūšana, izveide, dzēšana un izmantošana
-app.get('/api/inventory', authMiddleware, async (req, res) => { try { const userId = req.user.userId; const result = await pool.query('SELECT id, name, type, subtype, payload, rarity, created_at FROM items WHERE user_id = $1 AND (consumed IS NULL OR consumed = FALSE) ORDER BY created_at DESC', [userId]); res.json({ items: result.rows }) } catch (err) { console.error('Get inventory error:', err); res.status(500).json({ error: 'Unable to fetch inventory.' }) } })
+app.get('/api/inventory', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId
+    const result = await pool.query(
+      'SELECT id, name, type, subtype, payload, rarity, created_at FROM items WHERE user_id = $1 AND (consumed IS NULL OR consumed = FALSE) ORDER BY created_at DESC',
+      [userId]
+    )
+    res.json({ items: result.rows })
+  } catch (err) {
+    console.error('Get inventory error:', err)
+    res.status(500).json({ error: 'Unable to fetch inventory.' })
+  }
+})
 
-app.post('/api/inventory/create', authMiddleware, async (req, res) => { try { const userId = req.user.userId; const { name, type = 'consumable', subtype = null, payload = {}, rarity = 'common' } = req.body; if (!name || typeof name !== 'string') return res.status(400).json({ error: 'Invalid name' }); const insert = await pool.query('INSERT INTO items (user_id, name, type, subtype, payload, rarity) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, type, subtype, payload, rarity', [userId, name, type, subtype, JSON.stringify(payload), rarity]); res.status(201).json({ item: insert.rows[0] }) } catch (err) { console.error('Create item error:', err); res.status(500).json({ error: 'Unable to create item.' }) } })
+app.post('/api/inventory/create', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId
+    const { name, type = 'consumable', subtype = null, payload = {}, rarity = 'common' } = req.body
+    if (!name || typeof name !== 'string') return res.status(400).json({ error: 'Invalid name' })
+    const insert = await pool.query(
+      'INSERT INTO items (user_id, name, type, subtype, payload, rarity) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, type, subtype, payload, rarity',
+      [userId, name, type, subtype, JSON.stringify(payload), rarity]
+    )
+    res.status(201).json({ item: insert.rows[0] })
+  } catch (err) {
+    console.error('Create item error:', err)
+    res.status(500).json({ error: 'Unable to create item.' })
+  }
+})
 
-app.delete('/api/inventory/:id', authMiddleware, async (req, res) => { try { const userId = req.user.userId; const id = parseInt(req.params.id, 10); if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' }); await pool.query('DELETE FROM items WHERE id = $1 AND user_id = $2', [id, userId]); res.json({ success: true }) } catch (err) { console.error('Delete item error:', err); res.status(500).json({ error: 'Unable to delete item.' }) } })
+app.delete('/api/inventory/:id', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId
+    const id = parseInt(req.params.id, 10)
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+    await pool.query('DELETE FROM items WHERE id = $1 AND user_id = $2', [id, userId])
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Delete item error:', err)
+    res.status(500).json({ error: 'Unable to delete item.' })
+  }
+})
 
-app.post('/api/inventory/use/:id', authMiddleware, async (req, res) => { const client = await pool.connect(); try { await client.query('BEGIN'); const userId = req.user.userId; const id = parseInt(req.params.id, 10); if (isNaN(id)) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Invalid id' }) } const rowRes = await client.query('SELECT id, name, type, subtype, payload, consumed FROM items WHERE id = $1 AND user_id = $2 FOR UPDATE', [id, userId]); if (rowRes.rows.length === 0) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Item not found' }) } const item = rowRes.rows[0]; if (item.consumed) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Item already used' }) } if (item.type === 'consumable') { try { await client.query('DELETE FROM items WHERE id = $1', [id]) } catch (delErr) { console.error('Failed deleting consumed item', id, delErr); try { await client.query('UPDATE items SET consumed = TRUE WHERE id = $1', [id]) } catch (uErr) { console.error('Also failed to mark consumed', id, uErr) } } } const payload = item.payload || {}; if (item.subtype === 'xp') { const amount = Number(payload.amount) || 0; const petRow = await client.query('SELECT id, xp, level FROM pets WHERE user_id = $1 FOR UPDATE', [userId]); const prevXp = petRow.rows.length > 0 ? (petRow.rows[0].xp || 0) : 0; const prevLevel = getLevelProgress(prevXp).level; const petUpdate = await client.query('UPDATE pets SET xp = COALESCE(xp,0) + $1 WHERE user_id = $2 RETURNING id, xp', [amount, userId]); const newXp = petUpdate.rows.length > 0 ? petUpdate.rows[0].xp : prevXp; let levelUp = false; if (getLevelProgress(newXp).level > prevLevel) { const newLevel = getLevelProgress(newXp).level; await client.query('UPDATE pets SET level = $1 WHERE user_id = $2', [newLevel, userId]); await client.query('INSERT INTO items (user_id, name, type, subtype, payload) VALUES ($1,$2,$3,$4,$5)', [userId, `Level ${newLevel} Reward`, 'eternal', 'level', JSON.stringify({ level: newLevel })]); levelUp = true } await client.query('COMMIT'); return res.json({ success: true, effect: { type: 'xp', amount }, petXp: newXp, levelUp }) } if (item.subtype === 'freeze') { const dur = Number(payload.durationSeconds) || 10; const expiresAt = new Date(Date.now() + dur * 1000); await client.query('INSERT INTO active_effects (user_id, effect_type, multiplier, uses_remaining, expires_at) VALUES ($1,$2,$3,$4,$5)', [userId, 'freeze', 1, 1, expiresAt]); await client.query('COMMIT'); return res.json({ success: true, effect: { type: 'freeze', durationSeconds: dur } }) } if (item.subtype === 'boost') { const mult = Number(payload.multiplier) || 1.5; const uses = parseInt(payload.uses, 10) || 1; const hours = parseInt(payload.expiresHours, 10) || null; const expiresAt = hours ? new Date(Date.now() + hours * 60 * 60 * 1000) : null; await client.query('INSERT INTO active_effects (user_id, effect_type, multiplier, uses_remaining, expires_at) VALUES ($1,$2,$3,$4,$5)', [userId, 'boost', mult, uses, expiresAt]); await client.query('COMMIT'); return res.json({ success: true, effect: { type: 'boost', multiplier: mult, uses } }) } await client.query('COMMIT'); return res.json({ success: true }) } catch (err) { try { await client.query('ROLLBACK') } catch (e) {} console.error('Use item error:', err); res.status(500).json({ error: 'Unable to use item.' }) } finally { client.release() } })
+app.post('/api/inventory/use/:id', authMiddleware, async (req, res) => {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const userId = req.user.userId
+    const id = parseInt(req.params.id, 10)
+    if (isNaN(id)) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ error: 'Invalid id' })
+    }
+    const rowRes = await client.query('SELECT id, name, type, subtype, payload, consumed FROM items WHERE id = $1 AND user_id = $2 FOR UPDATE', [id, userId])
+    if (rowRes.rows.length === 0) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ error: 'Item not found' })
+    }
+    const item = rowRes.rows[0]
+    if (item.consumed) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ error: 'Item already used' })
+    }
+    if (item.type === 'consumable') {
+      try {
+        await client.query('DELETE FROM items WHERE id = $1', [id])
+      } catch (delErr) {
+        console.error('Failed deleting consumed item', id, delErr)
+        try {
+          await client.query('UPDATE items SET consumed = TRUE WHERE id = $1', [id])
+        } catch (uErr) {
+          console.error('Also failed to mark consumed', id, uErr)
+        }
+      }
+    }
+    const payload = item.payload || {}
+    if (item.subtype === 'xp') {
+      const amount = Number(payload.amount) || 0
+      const petRow = await client.query('SELECT id, xp, level FROM pets WHERE user_id = $1 FOR UPDATE', [userId])
+      const prevXp = petRow.rows.length > 0 ? (petRow.rows[0].xp || 0) : 0
+      const prevLevel = getLevelProgress(prevXp).level
+      const petUpdate = await client.query('UPDATE pets SET xp = COALESCE(xp,0) + $1 WHERE user_id = $2 RETURNING id, xp', [amount, userId])
+      const newXp = petUpdate.rows.length > 0 ? petUpdate.rows[0].xp : prevXp
+      let levelUp = false
+      if (getLevelProgress(newXp).level > prevLevel) {
+        const newLevel = getLevelProgress(newXp).level
+        await client.query('UPDATE pets SET level = $1 WHERE user_id = $2', [newLevel, userId])
+        await client.query('INSERT INTO items (user_id, name, type, subtype, payload) VALUES ($1,$2,$3,$4,$5)', [userId, `Level ${newLevel} Reward`, 'eternal', 'level', JSON.stringify({ level: newLevel })])
+        levelUp = true
+      }
+      await client.query('COMMIT')
+      return res.json({ success: true, effect: { type: 'xp', amount }, petXp: newXp, levelUp })
+    }
+    if (item.subtype === 'freeze') {
+      const dur = Number(payload.durationSeconds) || 10
+      const expiresAt = new Date(Date.now() + dur * 1000)
+      await client.query('INSERT INTO active_effects (user_id, effect_type, multiplier, uses_remaining, expires_at) VALUES ($1,$2,$3,$4,$5)', [userId, 'freeze', 1, 1, expiresAt])
+      await client.query('COMMIT')
+      return res.json({ success: true, effect: { type: 'freeze', durationSeconds: dur } })
+    }
+    if (item.subtype === 'boost') {
+      const mult = Number(payload.multiplier) || 1.5
+      const uses = parseInt(payload.uses, 10) || 1
+      const hours = parseInt(payload.expiresHours, 10) || null
+      const expiresAt = hours ? new Date(Date.now() + hours * 60 * 60 * 1000) : null
+      await client.query('INSERT INTO active_effects (user_id, effect_type, multiplier, uses_remaining, expires_at) VALUES ($1,$2,$3,$4,$5)', [userId, 'boost', mult, uses, expiresAt])
+      await client.query('COMMIT')
+      return res.json({ success: true, effect: { type: 'boost', multiplier: mult, uses } })
+    }
+    await client.query('COMMIT')
+    return res.json({ success: true })
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK')
+    } catch (e) {
+    }
+    console.error('Use item error:', err)
+    res.status(500).json({ error: 'Unable to use item.' })
+  } finally {
+    client.release()
+  }
+})
 
 // Sāk express serveri norādītajā portā
 app.listen(PORT, () => console.log(`Auth backend listening on http://localhost:${PORT}`))
