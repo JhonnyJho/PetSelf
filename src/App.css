@@ -7,6 +7,12 @@ body,
   height: 100%;
 }
 
+/* Firefox scrollbar support */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -35,7 +41,7 @@ canvas {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: min(360px, 92%);
+  width: min(420px, 92%);
   padding: 26px;
   background: rgba(0, 0, 0, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -85,6 +91,27 @@ canvas {
 }
 
 .auth-panel button[type='submit']:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.auth-panel .primary-full {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 12px;
+  background: #22c55e;
+  color: #040404;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-panel .primary-full:hover {
+  background: #16a34a;
+}
+
+.auth-panel .primary-full:disabled {
   opacity: 0.7;
   cursor: not-allowed;
 }
@@ -163,6 +190,40 @@ canvas {
 }
 
 .close-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Custom scrollbar for panels */
+.auth-panel ::-webkit-scrollbar,
+.friends-panel ::-webkit-scrollbar,
+.moderator-panel ::-webkit-scrollbar,
+.inventory-panel ::-webkit-scrollbar,
+.tasks-panel ::-webkit-scrollbar {
+  width: 5px;
+}
+
+.auth-panel ::-webkit-scrollbar-track,
+.friends-panel ::-webkit-scrollbar-track,
+.moderator-panel ::-webkit-scrollbar-track,
+.inventory-panel ::-webkit-scrollbar-track,
+.tasks-panel ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.auth-panel ::-webkit-scrollbar-thumb,
+.friends-panel ::-webkit-scrollbar-thumb,
+.moderator-panel ::-webkit-scrollbar-thumb,
+.inventory-panel ::-webkit-scrollbar-thumb,
+.tasks-panel ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+
+.auth-panel ::-webkit-scrollbar-thumb:hover,
+.friends-panel ::-webkit-scrollbar-thumb:hover,
+.moderator-panel ::-webkit-scrollbar-thumb:hover,
+.inventory-panel ::-webkit-scrollbar-thumb:hover,
+.tasks-panel ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
@@ -463,8 +524,8 @@ canvas {
 
 /* Friends panel */
 .friends-panel {
-  width: min(420px, 94%);
-  max-height: 72vh;
+  width: min(640px, 94%);
+  max-height: 64vh;
   overflow: auto;
 }
 
@@ -727,7 +788,6 @@ canvas {
   height:18px 
 }
 
-/* Custom checkmark button for tasks */
 .task-check {
   width: 36px;
   height: 36px;
@@ -748,7 +808,6 @@ canvas {
 }
 .task-check.disabled { opacity: 0.6; cursor: not-allowed }
 
-/* Styled inputs for create task form */
 .create-form .form-input {
   width: 100%;
   padding: 10px 12px;
@@ -764,7 +823,6 @@ canvas {
   outline: none;
 }
 
-/* Custom number control (XP and Duration) */
 .create-form .number-control {
   display: inline-flex;
   align-items: center;
@@ -795,7 +853,6 @@ canvas {
 .create-form .number-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .create-form .number-input { -moz-appearance: textfield; }
 
-/* Centered vertical group for XP and Duration */
 .create-form .number-group {
   display: flex;
   flex-direction: column;

@@ -10,6 +10,15 @@ import FriendsPanel from './FriendsPanel'
 import TasksPanel from './TasksPanel'
 import InventoryPanel from './InventoryPanel'
 import { getLevelProgress } from './level'
+import PetModel from './models/PetModel'
+
+// Lokalizācijas atbalsta kartes (lietotāja redzamām vērtībām)
+const appearanceLabels = { cube: 'Suns', pyramid: 'Kaķis', dog: 'Suns', cat: 'Kaķis' }
+const colorLabels = { red: 'Sarkans', blue: 'Zils', green: 'Zaļš' }
+const genderLabels = { male: 'Tēviņš', female: 'Mātīte', 'non-binary': 'Ne-binārs' }
+const translateAppearance = (a) => appearanceLabels[a] || a
+const translateColor = (c) => colorLabels[c] || c
+const translateGender = (g) => genderLabels[g] || g
 
 const TorusKnot = ({ position, size, color }) => {
   const ref = useRef()
@@ -81,14 +90,14 @@ const Pet = ({ pet }) => {
   useFrame((state, delta) => {
     if (!ref.current || !pet) return
 
-    // Rotate the pet
+    // Pagriež mājdzīvnieku
     ref.current.rotation.y += delta * 0.5
 
-    // Move timer - change position every 3 seconds
+    // Pārvietošanas taimeris - maina pozīciju ik pēc 3 sekundēm
     setMoveTimer((prev) => {
       const newTimer = prev + delta
       if (newTimer > 3) {
-        // Random new position within platform bounds
+        // Izvēlas nejaušu pozīciju platformas robežās
         const x = (Math.random() - 0.5) * 8
         const z = (Math.random() - 0.5) * 4
         setTargetPos([x, 0, z])
@@ -97,11 +106,11 @@ const Pet = ({ pet }) => {
       return newTimer
     })
 
-    // Smoothly move towards target
+    // Lēni pārvietojas uz mērķi
     const currentPos = ref.current.position
     currentPos.x += (targetPos[0] - currentPos.x) * delta * 0.5
     currentPos.z += (targetPos[2] - currentPos.z) * delta * 0.5
-    // Bob up and down
+    // Šūpojas augšā un lejā
     currentPos.y = Math.sin(state.clock.elapsedTime * 2) * 0.1
   })
 
@@ -109,26 +118,12 @@ const Pet = ({ pet }) => {
 
   const petColor = colorMap[pet.color] || '#ef4444'
 
+  const appearanceType = pet.appearance === 'cube' ? 'dog' : pet.appearance === 'pyramid' ? 'cat' : pet.appearance
+
   return (
     <group ref={ref} position={[0, 0, 0]}>
-      {pet.appearance === 'cube' ? (
-        <mesh>
-          <boxGeometry args={[0.8, 0.8, 0.8]} />
-          <meshStandardMaterial color={petColor} />
-        </mesh>
-      ) : (
-        <mesh>
-          <coneGeometry args={[0.5, 0.9, 4]} />
-          <meshStandardMaterial color={petColor} />
-        </mesh>
-      )}
-      <Text
-        position={[0, 0.8, 0]}
-        fontSize={0.25}
-        color="white"
-        anchorX="center"
-        anchorY="middle"
-      >
+      <PetModel type={appearanceType} color={petColor} scale={0.8} />
+      <Text position={[0, 0.8, 0]} fontSize={0.25} color="white" anchorX="center" anchorY="middle">
         {pet.name}
       </Text>
     </group>
@@ -146,42 +141,42 @@ const MainScene = ({ onLogout, pet, onOpenFeature }) => {
 
   return (
     <>
-      {/* Ground plane */}
+      {/* Grīdas plakne */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1, 0]}>
         <planeGeometry args={[20, 20]} />
         <meshStandardMaterial color="#2a2a3a" />
       </mesh>
 
-      {/* Pet */}
+      {/* Mājdzīvnieks */}
       <Pet pet={pet} />
 
-      {/* Interactive cubes */}
+      {/* Interaktīvie kubi */}
       <InteractiveCube
         position={[-3, 0, 0]}
         color="#4a9eff"
-        label="Inventory"
+        label="Inventārs"
         onClick={() => handleCubeClick('inventory')}
       />
       <InteractiveCube
         position={[-1, 0, 0]}
         color="#ff9f4a"
-        label="Tasks"
+        label="Uzdevumi"
         onClick={() => handleCubeClick('tasks')}
       />
       <InteractiveCube
         position={[1, 0, 0]}
         color="#4aff9f"
-        label="Friends"
+        label="Draugi"
         onClick={() => handleCubeClick('friends')}
       />
       <InteractiveCube
         position={[3, 0, 0]}
         color="#ff4a4a"
-        label="Logout"
+        label="Izrakstīties"
         onClick={() => handleCubeClick('logout')}
       />
 
-      {/* Feature indicator intentionally handled by App-level UI (FriendsPanel) */}
+      {/* Funkcijas indikators tiek apzināti apstrādāts App līmeņa UI (FriendsPanel) */}
 
       <OrbitControls enableZoom={true} />
     </>
@@ -195,7 +190,7 @@ const App = () => {
   const [showPanel, setShowPanel] = useState(true)
   const [pendingUser, setPendingUser] = useState(null) // { email, nickname }
 
-  // Restore state from localStorage on page load
+  // Atjauno stāvokli no localStorage, ielādējot lapu
   useEffect(() => {
     const savedMode = localStorage.getItem('appMode')
     const savedShowPanel = localStorage.getItem('showPanel')
@@ -220,7 +215,7 @@ const App = () => {
     }
   }, [])
 
-  // Save state to localStorage whenever it changes
+  // Saglabā stāvokli localStorage, kad tas mainās
   useEffect(() => {
     localStorage.setItem('appMode', mode)
   }, [mode])
@@ -237,7 +232,7 @@ const App = () => {
     }
   }, [user])
 
-  // Listen for other components requesting a user refresh (e.g. pet XP awarded)
+  // Klausās, vai citas komponentes pieprasa lietotāja atsvaidzināšanu (piem., piešķirts mājdzīvnieka XP)
   useEffect(() => {
     const handleRefresh = async () => {
       const token = localStorage.getItem('authToken')
@@ -259,7 +254,7 @@ const App = () => {
     return () => window.removeEventListener('refreshUser', handleRefresh)
   }, [])
 
-  // Seed default tasks automatically when a user is present (idempotent)
+  // Automātiski inicializē noklusējuma uzdevumus, ja lietotājs ir (idempotenti)
   useEffect(() => {
     if (!user) return
     const token = localStorage.getItem('authToken')
@@ -268,7 +263,7 @@ const App = () => {
       try {
         await fetch('http://localhost:4000/api/tasks/seed', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
       } catch (e) {
-        // ignore
+        // Ignorēt kļūdu
       }
     })()
   }, [user])
@@ -281,7 +276,7 @@ const App = () => {
     }
   }, [pendingUser])
 
-  // Save register form state
+  // Saglabā reģistrācijas formas stāvokli
   const [registerFormState, setRegisterFormState] = useState({
     email: '',
     password: '',
@@ -289,7 +284,7 @@ const App = () => {
     step: 'register'
   })
 
-  // Save login form state
+  // Saglabā pieteikšanās formas stāvokli
   const [loginFormState, setLoginFormState] = useState({
     email: '',
     password: ''
@@ -325,7 +320,7 @@ const App = () => {
     localStorage.setItem('loginFormState', JSON.stringify(loginFormState))
   }, [loginFormState])
 
-  // Save pet creation form state
+  // Saglabā mājdzīvnieka izveides formas stāvokli
   const [petCreationFormState, setPetCreationFormState] = useState({
     name: '',
     appearance: '',
@@ -353,7 +348,7 @@ const App = () => {
     setUser(null)
     setMode('login')
     setShowPanel(true)
-    // Clear form states on logout
+    // Notīra formu stāvokļus izrakstoties
     setRegisterFormState({ email: '', password: '', nickname: '', step: 'register' })
     setLoginFormState({ email: '', password: '' })
     setPetCreationFormState({ name: '', appearance: '', color: '', gender: '' })
@@ -366,7 +361,7 @@ const App = () => {
 
   const handlePetCreated = async (pet) => {
     setPendingUser(null)
-    // Auto-login after pet creation
+    // Automātiska pieteikšanās pēc mājdzīvnieka izveides
     try {
       const response = await fetch('http://localhost:4000/api/login', {
         method: 'POST',
@@ -390,7 +385,7 @@ const App = () => {
     setMode('login')
   }
 
-  // Compute pet level/progress for display (uses total XP stored on the pet)
+  // Aprēķina mājdzīvnieka līmeni/progresu attēlošanai (izmanto kopējo XP)
   const petProgress = user?.pet ? getLevelProgress(user.pet.xp ?? 0) : null
 
   return (
@@ -418,19 +413,19 @@ const App = () => {
       {showPanel && user && (
         <div className="auth-panel">
           <button className="close-button" onClick={() => setShowPanel(false)}>×</button>
-          <h1>Welcome back</h1>
-          {user.nickname && <p className="info">Nickname: {user.nickname}</p>}
+          <h1>Laipni lūdzam atpakaļ</h1>
+          {user.nickname && <p className="info">Segvārds: {user.nickname}</p>}
           {user.pet && (
             <p className="info">
-              Pet: {user.pet.name} ({user.pet.appearance}, {user.pet.color}, {user.pet.gender})
+              Mājdzīvnieks: {user.pet.name} ({translateAppearance(user.pet.appearance)}, {translateColor(user.pet.color)}, {translateGender(user.pet.gender)})
             </p>
           )}
           {user.pet && petProgress && (
-            <p className="info">Level: {petProgress.level} — XP: {petProgress.xpIntoLevel}/{petProgress.xpForNextLevel}</p>
+            <p className="info">Līmenis: {petProgress.level} — XP: {petProgress.xpIntoLevel}/{petProgress.xpForNextLevel}</p>
           )}
-          <p className="info">Logged in as {user.email}</p>
+          <p className="info">Pieslēdzies kā {user.email}</p>
           <button type="button" className="logout-button" onClick={handleLogout}>
-            Logout
+            Izrakstīties
           </button>
         </div>
       )}

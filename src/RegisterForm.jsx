@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 const API_URL = 'http://localhost:4000'
 
 const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formState, setFormState }) => {
-  // Use props if provided (for persistence), otherwise use local state
+  // Izmanto props, ja pieejami (saglabāšanai), citādi lokālu stāvokli
   const [localState, setLocalState] = useState({
     email: formState?.email || '',
     password: formState?.password || '',
@@ -11,7 +11,7 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
     step: formState?.step || 'register'
   })
 
-  // Sync with props when they change
+  // Sinhronizē ar props, ja tie mainās
   const state = formState ? { ...localState, ...formState } : localState
   const setState = (updates) => {
     const newState = typeof updates === 'function' ? updates(state) : updates
@@ -22,8 +22,10 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
   }
 
   const { email, password, nickname, step } = state
+  const passwordComplexityRegex = /^(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>\/?`~]).{8,}$/
+  const [pwValid, setPwValid] = useState(() => passwordComplexityRegex.test(password || ''))
   const setEmail = (val) => setState(prev => ({ ...prev, email: val }))
-  const setPassword = (val) => setState(prev => ({ ...prev, password: val }))
+  const setPassword = (val) => { setState(prev => ({ ...prev, password: val })); setPwValid(passwordComplexityRegex.test(val || '')) }
   const setNickname = (val) => setState(prev => ({ ...prev, nickname: val }))
   const setStep = (val) => setState(prev => ({ ...prev, step: val }))
 
@@ -31,6 +33,13 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const nicknameRef = useRef(null)
+
+  useEffect(() => {
+    if (step === 'nickname') {
+      setTimeout(() => nicknameRef.current?.focus(), 60)
+    }
+  }, [step])
 
   const handleRegister = async (event) => {
     event.preventDefault()
@@ -38,8 +47,15 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
     setMessage('')
     setLoading(true)
 
+    // Client-side password complexity check before proceeding
+    if (!passwordComplexityRegex.test(password || '')) {
+      setError('Parolei jābūt vismaz 8 rakstzīmēm, jāiekļauj viens cipars un viens speciāls simbols.')
+      setLoading(false)
+      return
+    }
+
     try {
-      // Check if email already exists
+      // Pārbauda, vai e-pasts jau eksistē
       const res = await fetch(`${API_URL}/api/check-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -47,21 +63,21 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
       })
       const body = await res.json()
       if (!res.ok) {
-        setError(body.error || 'Unable to check email')
+        setError(body.error || 'Nevar pārbaudīt e-pastu')
         setLoading(false)
         return
       }
 
       if (body.exists) {
-        setError('An account with this email already exists. Please log in.')
+        setError('Konts ar šo e-pastu jau pastāv. Lūdzu, piesakieties.')
         setLoading(false)
         return
       }
 
-      // Email is available — proceed to nickname step
+      // E-pasts pieejams — pāriet uz segvārda soli
       setStep('nickname')
     } catch (err) {
-      setError('Network error. Make sure the backend is running on http://localhost:4000')
+      setError('Tīkla kļūda. Pārliecinieties, ka backend darbojas vietnē http://localhost:4000')
     } finally {
       setLoading(false)
     }
@@ -82,7 +98,7 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
       const body = await response.json()
 
       if (!response.ok) {
-        setError(body.error || 'Failed to check nickname.')
+          setError(body.error || 'Neizdevās pārbaudīt segvārdu.')
         return
       }
 
@@ -90,7 +106,7 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
         setExistingUser(body.user)
         setStep('login-prompt')
       } else {
-        // Set the nickname
+        // Iestata segvārdu
         const setResponse = await fetch(`${API_URL}/api/set-nickname`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -100,16 +116,16 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
         const setBody = await setResponse.json()
 
         if (!setResponse.ok) {
-          setError(setBody.error || 'Failed to set nickname.')
+          setError(setBody.error || 'Neizdevās iestatīt segvārdu.')
           return
         }
 
-        setMessage('Nickname set!')
+        setMessage('Segvārds iestatīts!')
         onNicknameSet(email, nickname, password)
         setPassword('')
       }
     } catch (err) {
-      setError('Network error. Make sure the backend is running on http://localhost:4000')
+      setError('Tīkla kļūda. Pārliecinieties, ka backend darbojas vietnē http://localhost:4000')
     } finally {
       setLoading(false)
     }
@@ -120,27 +136,37 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
     onSwitchMode()
   }
 
+  const handleChooseOtherNickname = () => {
+    const base = formState ? { ...localState, ...formState } : localState
+    const newState = { ...base, step: 'nickname', nickname: '' }
+    setLocalState(newState)
+    if (setFormState) setFormState(newState)
+    setError('')
+    console.log('RegisterForm: switched to nickname step')
+  }
+
   if (step === 'nickname') {
     return (
       <>
-        <h1>Choose Nickname</h1>
-        <p className="info">Nickname must be 4-7 characters.</p>
+        <h1>Izvēlieties segvārdu</h1>
+        <p className="info">Segvārdam jābūt 4–7 rakstzīmēm.</p>
         <form onSubmit={handleNicknameSubmit}>
           <label>
-            Nickname
-            <input
-              type="text"
-              value={nickname}
-              onChange={(event) => setNickname(event.target.value)}
-              placeholder="Enter 4-7 letters"
-              minLength={4}
-              maxLength={7}
-              required
-            />
+            Segvārds
+              <input
+                ref={nicknameRef}
+                type="text"
+                value={nickname}
+                onChange={(event) => setNickname(event.target.value)}
+                placeholder="Ievadiet 4–7 burtus"
+                minLength={4}
+                maxLength={7}
+                required
+              />
           </label>
 
           <button type="submit" disabled={loading || nickname.length < 4 || nickname.length > 7}>
-            {loading ? 'Checking...' : 'Continue'}
+            {loading ? 'Pārbauda...' : 'Turpināt'}
           </button>
         </form>
         {error && <div className="error">{error}</div>}
@@ -151,18 +177,18 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
   if (step === 'login-prompt') {
     return (
       <>
-        <h1>Nickname Taken</h1>
-        <p className="info">This nickname is already taken by {existingUser?.email}</p>
-        <p>Would you like to log in instead?</p>
-        <button type="button" onClick={handleLoginInstead} style={{ width: '100%', marginTop: '12px' }}>
-          Login with {existingUser?.email}
+        <h1>Segvārds aizņemts</h1>
+        <p className="info">Šo segvārdu jau izmanto {existingUser?.email}</p>
+        <p>Vai vēlaties pieteikties tā vietā?</p>
+        <button type="button" onClick={handleLoginInstead} className="primary-full">
+          Pieteikties ar {existingUser?.email}
         </button>
         <button
           type="button"
-          onClick={() => { setStep('nickname'); setNickname(''); setError(''); }}
-          style={{ width: '100%', marginTop: '8px', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#fff' }}
+          onClick={handleChooseOtherNickname}
+          className="skip-button"
         >
-          Choose Different Nickname
+          Izvēlēties citu segvārdu
         </button>
       </>
     )
@@ -170,40 +196,41 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
 
   return (
     <>
-      <h1>Register</h1>
+      <h1>Reģistrēties</h1>
       <form onSubmit={handleRegister}>
         <label>
-          Email
+          E-pasts
           <input
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="you@example.com"
+            placeholder="jūsu@piemers.lv"
             required
           />
         </label>
 
         <label>
-          Password
+          Parole
           <input
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            placeholder="Minimum 8 characters"
+            placeholder="Vismaz 8 rakstzīmes, 1 cipars un 1 speciāls simbols"
             minLength={8}
             required
           />
+          <p className="info">Parolei jābūt vismaz 8 rakstzīmēm un jāiekļauj vismaz viens cipars un viens speciāls simbols.</p>
         </label>
 
-        <button type="submit" disabled={loading}>
-          {loading ? 'Processing...' : 'Register'}
+        <button type="submit" disabled={loading || !pwValid}>
+          {loading ? 'Apstrādā...' : 'Reģistrēties'}
         </button>
       </form>
 
       <p className="switch-line">
-        Already have an account?
+        Jau ir konts?
         <button className="link-button" type="button" onClick={onSwitchMode}>
-          Login
+          Pieteikties
         </button>
       </p>
 

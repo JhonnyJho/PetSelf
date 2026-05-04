@@ -27,7 +27,7 @@ const TaskRow = ({ task, onComplete, freezeUntil }) => {
     const id = setInterval(() => {
       setRemaining((r) => {
         if (r == null) return null
-        // If freeze is active, don't decrement
+        // Ja iesaldēšana aktīva, netiek atskaitīts
         if (freezeRef.current && Date.now() < freezeRef.current) return r
         if (r <= 0) return 0
         return r - 1
@@ -40,7 +40,7 @@ const TaskRow = ({ task, onComplete, freezeUntil }) => {
     <div className="task-row">
       <div className="task-left">
         <strong>{task.title}</strong>
-        <div className="task-meta">XP: {task.xp} • {task.isShared ? 'Shared' : 'Personal'}</div>
+        <div className="task-meta">XP: {task.xp} • {task.isShared ? 'Koplietots' : 'Personīgais'}</div>
         {task.durationSeconds != null && (
           <div className="task-progress" aria-hidden>
             <div
@@ -106,7 +106,7 @@ export default function TasksPanel({ onClose }) {
       const res = await fetch(`${API_BASE}/api/tasks`, { headers })
       const body = await res.json()
       if (res.ok) {
-        // Deduplicate by title (case-insensitive) as a defensive measure
+        // Atceļ dublikātus pēc nosaukuma (neatkarīgi no lielajiem/mazajiem burtiem) kā aizsardzības pasākums
         const rows = body.tasks || []
         const seen = new Set()
         const uniq = []
@@ -130,12 +130,13 @@ export default function TasksPanel({ onClose }) {
     fetchTasks()
   }, [])
 
+  // Ielādē uzdevumus sākotnēji
   useEffect(() => {
-    const id = setInterval(fetchTasks, 15 * 1000) // refresh every 15s
+    const id = setInterval(fetchTasks, 15 * 1000) // atsvaidzina ik pēc 15s
     return () => clearInterval(id)
   }, [])
 
-  // Listen for inventory effects (freeze) to pause timers
+  // Klausās inventāra efektus (iesaldēšana), lai apturētu taimerus
   const [freezeUntil, setFreezeUntil] = useState(null)
   useEffect(() => {
     const onEffect = (e) => {
@@ -144,7 +145,7 @@ export default function TasksPanel({ onClose }) {
         const dur = Number(eff.durationSeconds) || 0
         const until = Date.now() + dur * 1000
         setFreezeUntil(until)
-        // Refresh tasks once to sync remaining seconds
+        // Atsvaidzināt uzdevumus, lai sinhronizētu atlikušo laiku
         fetchTasks()
         setTimeout(() => setFreezeUntil(null), dur * 1000)
       }
@@ -173,7 +174,7 @@ export default function TasksPanel({ onClose }) {
   const handleCreate = async () => {
     if (!title || title.trim().length === 0) return
     const xpValue = Math.min(10, Math.max(0, parseInt(xp, 10) || 0))
-    // Ensure minimum duration of 5 minutes
+    // Nodrošina minimālo ilgumu — 5 minūtes
     const durationVal = Math.max(5, parseInt(durationMinutes, 10) || 0)
     const payload = { title: title.trim(), xp: xpValue, durationSeconds: durationVal * 60 }
     if (selectedFriend) payload.friendId = selectedFriend.id
@@ -191,7 +192,7 @@ export default function TasksPanel({ onClose }) {
         fetchTasks()
       } else {
         console.error('Create task failed', body)
-        alert(body.error || 'Failed to create task')
+        alert(body.error || 'Neizdevās izveidot uzdevumu')
       }
     } catch (e) {
       console.error('Create task error', e)
@@ -203,7 +204,7 @@ export default function TasksPanel({ onClose }) {
       const res = await fetch(`${API_BASE}/api/tasks/${taskId}/complete`, { method: 'POST', headers })
       const body = await res.json()
       if (res.ok) {
-        // If XP was awarded (non-shared) or all participants completed now (shared), ask app to refresh user/pet
+        // Ja piešķirts XP (ne-koplietots) vai visi dalībnieki tagad pabeiguši (koplietots), pieprasa lietotnei atsvaidzināt lietotāju/mājdzīvnieku
         if (body.petXp != null || body.allCompleted) {
           window.dispatchEvent(new Event('refreshUser'))
         }
@@ -223,36 +224,36 @@ export default function TasksPanel({ onClose }) {
     <div className="tasks-modal-backdrop" onClick={onClose}>
       <div className="tasks-panel" onClick={(e) => e.stopPropagation()}>
         <div className="panel-header">
-          <h3>Tasks</h3>
+          <h3>Uzdevumi</h3>
           <button className="close-button" onClick={onClose}>×</button>
         </div>
 
         <div className="tabs">
-          <button className={tab === 'ongoing' ? 'active' : ''} onClick={() => setTab('ongoing')}>Ongoing</button>
-          <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}>Create</button>
-          <button className={tab === 'completed' ? 'active' : ''} onClick={() => setTab('completed')}>Completed</button>
+          <button className={tab === 'ongoing' ? 'active' : ''} onClick={() => setTab('ongoing')}>Aktīvie</button>
+          <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}>Izveidot</button>
+          <button className={tab === 'completed' ? 'active' : ''} onClick={() => setTab('completed')}>Pabeigtie</button>
         </div>
 
         <div className="tab-body">
           {tab === 'ongoing' && (
             <div>
-              {loading && <div>Loading...</div>}
-              {!loading && ongoing.length === 0 && <div>No ongoing tasks.</div>}
+              {loading && <div>Ielādē...</div>}
+              {!loading && ongoing.length === 0 && <div>Nav aktīvu uzdevumu.</div>}
               {ongoing.map((t) => <TaskRow key={t.id} task={t} onComplete={handleComplete} freezeUntil={freezeUntil} />)}
             </div>
           )}
 
           {tab === 'completed' && (
             <div>
-              {!loading && completed.length === 0 && <div>No completed tasks.</div>}
+              {!loading && completed.length === 0 && <div>Nav pabeigto uzdevumu.</div>}
               {completed.map((t) => (
                 <div key={t.id} className="task-row completed">
                   <div className="task-left">
                     <strong>{t.title}</strong>
-                    <div className="task-meta">XP: {t.xp} • {t.isShared ? 'Shared' : 'Personal'}</div>
+                    <div className="task-meta">XP: {t.xp} • {t.isShared ? 'Koplietots' : 'Personīgais'}</div>
                   </div>
                   <div className="task-right">
-                    <div className="task-time">Completed</div>
+                    <div className="task-time">Pabeigts</div>
                   </div>
                 </div>
               ))}
@@ -261,7 +262,7 @@ export default function TasksPanel({ onClose }) {
 
           {tab === 'create' && (
             <div className="create-form">
-              <label>Title
+              <label>Nosaukums
                 <input className="form-input" value={title} onChange={(e) => setTitle(e.target.value)} />
               </label>
               <div className="number-group">
@@ -286,7 +287,7 @@ export default function TasksPanel({ onClose }) {
                 </label>
 
                 <label className="number-label">
-                  <div className="label-text">Duration (minutes)</div>
+                  <div className="label-text">Ilgums (minūtēs)</div>
                   <div className="number-control">
                     <button type="button" className="num-btn" onClick={() => setDurationMinutes((p) => Math.max(5, (Number(p) || 0) - 1))}>−</button>
                     <input
@@ -304,8 +305,8 @@ export default function TasksPanel({ onClose }) {
                 </label>
               </div>
 
-              <label>With friend (optional)
-                <input className="form-input" value={friendQuery} onChange={(e) => handleSearchFriends(e.target.value)} placeholder="Search nickname" />
+              <label>Ar draugu (pēc izvēles)
+                <input className="form-input" value={friendQuery} onChange={(e) => handleSearchFriends(e.target.value)} placeholder="Meklēt segvārdu" />
               </label>
               {friendResults.length > 0 && (
                 <div className="friend-results">
@@ -317,8 +318,8 @@ export default function TasksPanel({ onClose }) {
                 </div>
               )}
 
-              <div className="create-actions">
-                <button className="primary-btn" onClick={handleCreate}>Create Task</button>
+                <div className="create-actions">
+                <button className="primary-btn" onClick={handleCreate}>Izveidot uzdevumu</button>
               </div>
             </div>
           )}

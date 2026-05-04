@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Text } from '@react-three/drei'
+import PetModel from './models/PetModel'
 
 const API_URL = 'http://localhost:4000'
 
@@ -19,19 +20,12 @@ const PetPreview = ({ appearance, color, name }) => {
   })
 
   const petColor = colorMap[color] || '#ef4444'
+  const appearanceType = appearance === 'cube' ? 'dog' : appearance === 'pyramid' ? 'cat' : appearance
 
   return (
     <group ref={ref}>
-      {appearance === 'cube' ? (
-        <mesh>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial color={petColor} />
-        </mesh>
-      ) : appearance === 'pyramid' ? (
-        <mesh>
-          <coneGeometry args={[0.6, 1.2, 4]} />
-          <meshStandardMaterial color={petColor} />
-        </mesh>
+      {appearanceType ? (
+        <PetModel type={appearanceType} color={petColor} scale={1} />
       ) : null}
       {name && (
         <Text position={[0, 1, 0]} fontSize={0.3} color="white" anchorX="center" anchorY="middle">
@@ -43,7 +37,7 @@ const PetPreview = ({ appearance, color, name }) => {
 }
 
 const PetCreationForm = ({ email, password, nickname, onPetCreated, formState, setFormState }) => {
-  // Use props if provided (for persistence), otherwise use local state
+  // Izmanto props, ja pieejami (saglabāšanai), citādi lokālu stāvokli
   const [localState, setLocalState] = useState({
     name: formState?.name || '',
     appearance: formState?.appearance || '',
@@ -51,7 +45,7 @@ const PetCreationForm = ({ email, password, nickname, onPetCreated, formState, s
     gender: formState?.gender || ''
   })
 
-  // Sync with props when they change
+  // Sinhronizē ar props, ja tie mainās
   const state = formState ? { ...localState, ...formState } : localState
   const setState = (updates) => {
     const newState = typeof updates === 'function' ? updates(state) : updates
@@ -75,12 +69,12 @@ const PetCreationForm = ({ email, password, nickname, onPetCreated, formState, s
     setError('')
 
     if (!name || name.trim().length === 0) {
-      setError('Please enter a pet name.')
+      setError('Lūdzu, ievadiet mājdzīvnieka vārdu.')
       return
     }
 
     if (!appearance || !color || !gender) {
-      setError('Please select all options.')
+      setError('Lūdzu, izvēlieties visas opcijas.')
       return
     }
 
@@ -96,13 +90,13 @@ const PetCreationForm = ({ email, password, nickname, onPetCreated, formState, s
       const body = await response.json()
 
       if (!response.ok) {
-        setError(body.error || 'Failed to create pet.')
+        setError(body.error || 'Neizdevās izveidot mājdzīvnieku.')
         return
       }
 
       onPetCreated(body.pet)
     } catch (err) {
-      setError('Network error. Make sure the backend is running.')
+      setError('Tīkla kļūda. Pārliecinieties, ka backend darbojas.')
     } finally {
       setLoading(false)
     }
@@ -120,43 +114,43 @@ const PetCreationForm = ({ email, password, nickname, onPetCreated, formState, s
       </div>
 
       <div className="pet-creation">
-        <h1>Create Your Pet</h1>
+        <h1>Izveido savu mājdzīvnieku</h1>
 
         <form onSubmit={handleSubmit}>
           <div className="form-section">
-            <label>Pet Name (max 8 letters)</label>
+            <label>Mājdzīvnieka vārds (maks. 8 burti)</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value.slice(0, 8))}
-              placeholder="Enter name"
+              placeholder="Ievadiet vārdu"
               maxLength={8}
               required
             />
           </div>
 
           <div className="form-section">
-            <label>Appearance</label>
+            <label>Izskats</label>
             <div className="option-group">
               <button
                 type="button"
-                className={`option-button ${appearance === 'cube' ? 'selected' : ''}`}
-                onClick={() => setAppearance('cube')}
+                className={`option-button ${appearance === 'dog' || appearance === 'cube' ? 'selected' : ''}`}
+                onClick={() => setAppearance('dog')}
               >
-                Cube
+                Suns
               </button>
               <button
                 type="button"
-                className={`option-button ${appearance === 'pyramid' ? 'selected' : ''}`}
-                onClick={() => setAppearance('pyramid')}
+                className={`option-button ${appearance === 'cat' || appearance === 'pyramid' ? 'selected' : ''}`}
+                onClick={() => setAppearance('cat')}
               >
-                Pyramid
+                Kaķis
               </button>
             </div>
           </div>
 
           <div className="form-section">
-            <label>Color</label>
+            <label>Krāsa</label>
             <div className="option-group">
               <button
                 type="button"
@@ -164,7 +158,7 @@ const PetCreationForm = ({ email, password, nickname, onPetCreated, formState, s
                 onClick={() => setColor('red')}
                 style={{ background: color === 'red' ? '#ef4444' : '#7f1d1d' }}
               >
-                Red
+                Sarkans
               </button>
               <button
                 type="button"
@@ -172,7 +166,7 @@ const PetCreationForm = ({ email, password, nickname, onPetCreated, formState, s
                 onClick={() => setColor('blue')}
                 style={{ background: color === 'blue' ? '#3b82f6' : '#1e3a5f' }}
               >
-                Blue
+                Zils
               </button>
               <button
                 type="button"
@@ -180,40 +174,40 @@ const PetCreationForm = ({ email, password, nickname, onPetCreated, formState, s
                 onClick={() => setColor('green')}
                 style={{ background: color === 'green' ? '#22c55e' : '#14532d' }}
               >
-                Green
+                Zaļš
               </button>
             </div>
           </div>
 
           <div className="form-section">
-            <label>Gender</label>
+            <label>Dzimums</label>
             <div className="option-group">
               <button
                 type="button"
                 className={`option-button ${gender === 'female' ? 'selected' : ''}`}
                 onClick={() => setGender('female')}
               >
-                Female
+                Mātīte
               </button>
               <button
                 type="button"
                 className={`option-button ${gender === 'male' ? 'selected' : ''}`}
                 onClick={() => setGender('male')}
               >
-                Male
+                Tēviņš
               </button>
               <button
                 type="button"
                 className={`option-button ${gender === 'non-binary' ? 'selected' : ''}`}
                 onClick={() => setGender('non-binary')}
               >
-                Non-binary
+                Ne-binārs
               </button>
             </div>
           </div>
 
           <button type="submit" disabled={loading || !name || !appearance || !color || !gender}>
-            {loading ? 'Creating...' : 'Create Pet'}
+            {loading ? 'Izveido...' : 'Izveidot mājdzīvnieku'}
           </button>
         </form>
 

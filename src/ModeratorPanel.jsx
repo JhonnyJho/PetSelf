@@ -8,12 +8,14 @@ const ModeratorPanel = ({ onLogout }) => {
   const [error, setError] = useState('')
   const [showRegisterForm, setShowRegisterForm] = useState(false)
   
-  // Register form state
+  // Reģistrācijas formas stāvoklis
   const [registerEmail, setRegisterEmail] = useState('')
   const [registerPassword, setRegisterPassword] = useState('')
   const [registerError, setRegisterError] = useState('')
   const [registerSuccess, setRegisterSuccess] = useState('')
   const [registerLoading, setRegisterLoading] = useState(false)
+  const passwordComplexityRegex = /^(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>\/?`~]).{8,}$/
+  const [regPwValid, setRegPwValid] = useState(() => passwordComplexityRegex.test(registerPassword || ''))
 
   const token = localStorage.getItem('authToken')
 
@@ -25,13 +27,13 @@ const ModeratorPanel = ({ onLogout }) => {
       const body = await response.json()
       
       if (!response.ok) {
-        setError(body.error || 'Failed to fetch users')
+        setError(body.error || 'Neizdevās iegūt lietotājus')
         return
       }
       
       setUsers(body.users)
     } catch (err) {
-      setError('Network error')
+      setError('Tīkla kļūda')
     } finally {
       setLoading(false)
     }
@@ -42,7 +44,7 @@ const ModeratorPanel = ({ onLogout }) => {
   }, [])
 
   const handleDeleteUser = async (userId) => {
-    if (!confirm('Are you sure you want to delete this user? This will also delete their pet.')) {
+    if (!confirm('Vai tiešām vēlaties dzēst šo lietotāju? Tas arī dzēsīs viņu mājdzīvnieku.')) {
       return
     }
 
@@ -54,14 +56,14 @@ const ModeratorPanel = ({ onLogout }) => {
       const body = await response.json()
 
       if (!response.ok) {
-        setError(body.error || 'Failed to delete user')
+        setError(body.error || 'Neizdevās dzēst lietotāju')
         return
       }
 
-      // Refresh user list
+      // Atsvaidzināt lietotāju sarakstu
       fetchUsers()
     } catch (err) {
-      setError('Network error')
+      setError('Tīkla kļūda')
     }
   }
 
@@ -70,6 +72,12 @@ const ModeratorPanel = ({ onLogout }) => {
     setRegisterError('')
     setRegisterSuccess('')
     setRegisterLoading(true)
+
+    if (!passwordComplexityRegex.test(registerPassword || '')) {
+      setRegisterError('Parolei jābūt vismaz 8 rakstzīmēm, jāiekļauj viens cipars un viens speciāls simbols.')
+      setRegisterLoading(false)
+      return
+    }
 
     try {
       const response = await fetch(`${API_URL}/api/create-moderator`, {
@@ -83,16 +91,16 @@ const ModeratorPanel = ({ onLogout }) => {
       const body = await response.json()
 
       if (!response.ok) {
-        setRegisterError(body.error || 'Failed to create moderator')
+        setRegisterError(body.error || 'Neizdevās izveidot moderatoru')
         return
       }
 
-      setRegisterSuccess(`Moderator created: ${body.user.email}`)
+      setRegisterSuccess(`Moderators izveidots: ${body.user.email}`)
       setRegisterEmail('')
       setRegisterPassword('')
       fetchUsers()
     } catch (err) {
-      setRegisterError('Network error')
+      setRegisterError('Tīkla kļūda')
     } finally {
       setRegisterLoading(false)
     }
@@ -101,53 +109,54 @@ const ModeratorPanel = ({ onLogout }) => {
   return (
     <div className="moderator-panel">
       <div className="moderator-header">
-        <h1>Moderator Dashboard</h1>
-        <button className="logout-button" onClick={onLogout}>Logout</button>
+        <h1>Moderatora panelis</h1>
+        <button className="logout-button" onClick={onLogout}>Izrakstīties</button>
       </div>
 
       <button 
         className="create-mod-button"
         onClick={() => setShowRegisterForm(!showRegisterForm)}
       >
-        {showRegisterForm ? 'Cancel' : 'Create New Moderator'}
+        {showRegisterForm ? 'Atcelt' : 'Izveidot jaunu moderatoru'}
       </button>
 
       {showRegisterForm && (
         <form className="register-mod-form" onSubmit={handleRegisterModerator}>
-          <h3>Register New Moderator</h3>
+          <h3>Reģistrēt jaunu moderatoru</h3>
           <label>
-            Email
+            E-pasts
             <input
               type="email"
               value={registerEmail}
               onChange={(e) => setRegisterEmail(e.target.value)}
-              placeholder="moderator@example.com"
+              placeholder="moderator@piemers.lv"
               required
             />
           </label>
           <label>
-            Password
+            Parole
             <input
               type="password"
               value={registerPassword}
-              onChange={(e) => setRegisterPassword(e.target.value)}
-              placeholder="Minimum 8 characters"
+              onChange={(e) => { const v = e.target.value; setRegisterPassword(v); setRegPwValid(passwordComplexityRegex.test(v || '')); setRegisterError('') }}
+              placeholder="Vismaz 8 rakstzīmes, 1 cipars un 1 speciāls simbols"
               minLength={8}
               required
             />
+            <p className="info">Parolei jābūt vismaz 8 rakstzīmēm un jāiekļauj vismaz viens cipars un viens speciāls simbols.</p>
           </label>
-          <button type="submit" disabled={registerLoading}>
-            {registerLoading ? 'Creating...' : 'Create Moderator'}
+          <button type="submit" disabled={registerLoading || !regPwValid}>
+            {registerLoading ? 'Izveido...' : 'Izveidot moderatoru'}
           </button>
           {registerError && <p className="error">{registerError}</p>}
           {registerSuccess && <p className="success">{registerSuccess}</p>}
         </form>
       )}
 
-      <h2>All Users</h2>
+      <h2>Visi lietotāji</h2>
       
       {loading ? (
-        <p>Loading...</p>
+        <p>Ielādē...</p>
       ) : error ? (
         <p className="error">{error}</p>
       ) : (
@@ -155,17 +164,17 @@ const ModeratorPanel = ({ onLogout }) => {
           {users.map((user) => (
             <div key={user.id} className="user-card">
               <div className="user-info">
-                <p><strong>Email:</strong> {user.email}</p>
-                <p><strong>Nickname:</strong> {user.nickname || 'N/A'}</p>
-                <p><strong>Role:</strong> <span className={`role-${user.role}`}>{user.role}</span></p>
-                <p><strong>Created:</strong> {new Date(user.created_at).toLocaleDateString()}</p>
+                <p><strong>E-pasts:</strong> {user.email}</p>
+                <p><strong>Segvārds:</strong> {user.nickname || 'N/A'}</p>
+                <p><strong>Loma:</strong> <span className={`role-${user.role}`}>{user.role}</span></p>
+                <p><strong>Izveidots:</strong> {new Date(user.created_at).toLocaleDateString()}</p>
               </div>
               {user.role !== 'moderator' && (
                 <button 
                   className="delete-button"
                   onClick={() => handleDeleteUser(user.id)}
                 >
-                  Delete User
+                  Dzēst lietotāju
                 </button>
               )}
             </div>

@@ -3,13 +3,13 @@ import { useState } from 'react'
 const API_URL = 'http://localhost:4000'
 
 const LoginForm = ({ onLogin, onSwitchMode, formState, setFormState }) => {
-  // Use props if provided (for persistence), otherwise use local state
+  // Izmanto props, ja pieejami (saglabāšanai), citādi lokālu stāvokli
   const [localState, setLocalState] = useState({
     email: formState?.email || '',
     password: formState?.password || ''
   })
 
-  // Sync with props when they change
+  // Sinhronizē ar props, ja tie mainās
   const state = formState ? { ...localState, ...formState } : localState
   const setState = (updates) => {
     const newState = typeof updates === 'function' ? updates(state) : updates
@@ -45,15 +45,15 @@ const LoginForm = ({ onLogin, onSwitchMode, formState, setFormState }) => {
       const body = await response.json()
 
       if (!response.ok) {
-        setError(body.error || 'Login failed.')
+        setError(body.error || 'Pieteikšanās neizdevās.')
         return
       }
 
       localStorage.setItem('authToken', body.token)
       onLogin(body.user)
-      setMessage('Login successful!')
+      setMessage('Pieteikšanās veiksmīga!')
     } catch (err) {
-      setError('Network error. Make sure the backend is running on http://localhost:4000')
+      setError('Tīkla kļūda. Pārliecinieties, ka backend darbojas vietnē http://localhost:4000')
     } finally {
       setLoading(false)
     }
@@ -61,40 +61,40 @@ const LoginForm = ({ onLogin, onSwitchMode, formState, setFormState }) => {
 
   return (
     <>
-      <h1>Login</h1>
+      <h1>Pieteikties</h1>
       <form onSubmit={handleSubmit}>
         <label>
-          Email
+          E-pasts
           <input
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="you@example.com"
+            placeholder="jūsu@piemers.lv"
             required
           />
         </label>
 
         <label>
-          Password
+          Parole
           <input
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            placeholder="Minimum 8 characters"
+            placeholder="Vismaz 8 rakstzīmes"
             minLength={8}
             required
           />
         </label>
 
         <button type="submit" disabled={loading}>
-          {loading ? 'Processing...' : 'Login'}
+          {loading ? 'Apstrādā...' : 'Pieteikties'}
         </button>
       </form>
 
       <p className="switch-line">
-        Need an account?
+        Nav konta?
         <button className="link-button" type="button" onClick={onSwitchMode}>
-          Register
+          Reģistrēties
         </button>
       </p>
 

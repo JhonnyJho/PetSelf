@@ -76,17 +76,17 @@ export default function InventoryPanel({ onClose }) {
     <div className="tasks-modal-backdrop" onClick={onClose}>
       <div className="inventory-panel" onClick={(e) => e.stopPropagation()}>
         <div className="panel-header">
-          <h3>Inventory</h3>
+          <h3>Inventārs</h3>
           <button className="close-button" onClick={onClose}>×</button>
         </div>
 
         <div className="inventory-controls">
-          <input placeholder="Search items" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0) }} />
+          <input placeholder="Meklēt priekšmetus" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0) }} />
           <div className="rarity-filters">
-            <button className={`filter-btn ${rarityFilter === 'all' ? 'selected' : ''}`} onClick={() => { setRarityFilter('all'); setPage(0) }}>All</button>
-            <button className={`filter-btn ${rarityFilter === 'common' ? 'selected' : ''}`} onClick={() => { setRarityFilter('common'); setPage(0) }}>Common</button>
-            <button className={`filter-btn ${rarityFilter === 'uncommon' ? 'selected' : ''}`} onClick={() => { setRarityFilter('uncommon'); setPage(0) }}>Uncommon</button>
-            <button className={`filter-btn ${rarityFilter === 'rare' ? 'selected' : ''}`} onClick={() => { setRarityFilter('rare'); setPage(0) }}>Rare</button>
+            <button className={`filter-btn ${rarityFilter === 'all' ? 'selected' : ''}`} onClick={() => { setRarityFilter('all'); setPage(0) }}>Visi</button>
+            <button className={`filter-btn ${rarityFilter === 'common' ? 'selected' : ''}`} onClick={() => { setRarityFilter('common'); setPage(0) }}>Parasts</button>
+            <button className={`filter-btn ${rarityFilter === 'uncommon' ? 'selected' : ''}`} onClick={() => { setRarityFilter('uncommon'); setPage(0) }}>Neparasts</button>
+            <button className={`filter-btn ${rarityFilter === 'rare' ? 'selected' : ''}`} onClick={() => { setRarityFilter('rare'); setPage(0) }}>Rets</button>
           </div>
         </div>
 
@@ -106,10 +106,10 @@ export default function InventoryPanel({ onClose }) {
                   onClick={() => useItem(it.id)}
                   disabled={usingItemId === it.id}
                 >
-                  {usingItemId === it.id ? 'Using...' : (it.subtype === 'xp' ? `Use +${it.payload?.amount || ''}` : 'Use')}
+                  {usingItemId === it.id ? 'Izmanto...' : (it.subtype === 'xp' ? `Izmantot +${it.payload?.amount || ''}` : 'Izmantot')}
                 </button>
               )}
-              <button className="remove-button" onClick={() => removeItem(it.id)}>Remove</button>
+              <button className="remove-button" onClick={() => removeItem(it.id)}>Noņemt</button>
             </div>
           ))}
           {Array.from({ length: Math.max(0, pageSize - pageItems.length) }).map((_, i) => (

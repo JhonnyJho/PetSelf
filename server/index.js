@@ -7,12 +7,24 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import pkg from 'pg'
 import { URL } from 'url'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import { sendWelcomeEmail } from './utils/email.js'
+import './jobs/taskReminder.js'
 const { Pool } = pkg
 dotenv.config()
 // Ielādē `.env` failu un inicializē vides mainīgos (piem., DATABASE_URL, JWT_SECRET)
 const app = express()
 app.use(cors())
 app.use(express.json())
+// Apkalpo modeļu failus no public/models, kad tiek palaists Node serveris (noderīgi produkcijas būvei)
+try {
+  const __filename = fileURLToPath(import.meta.url)
+  const __dirname = path.dirname(__filename)
+  app.use('/models', express.static(path.join(__dirname, '..', 'public', 'models')))
+} catch (e) {
+  // Ignorēt, ja failu URL utilītas nav pieejamas dažās vidēs
+}
 // Pārbauda DATABASE_URL un izvada saprotamu kļūdas ziņojumu, ja konfigurācija nav derīga
 const DB_URL = process.env.DATABASE_URL
 if (!DB_URL) {
@@ -70,6 +82,18 @@ const ensureFriendTables = async () => { try { await pool.query(`
       );
     `) } catch (err) { console.error('Failed to ensure friend tables:', err) } }
 ensureFriendTables()
+
+// Bloķēto lietotāju tabula
+const ensureBlockedUsersTable = async () => { try { await pool.query(`
+      CREATE TABLE IF NOT EXISTS blocked_users (
+        id SERIAL PRIMARY KEY,
+        blocker_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        blocked_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (blocker_id, blocked_id)
+      );
+    `) } catch (err) { console.error('Failed to ensure blocked users table:', err) } }
+ensureBlockedUsersTable()
 
 // Mājdzīvnieku tabula: glabā pet datus (nosaukums, izskats, xp, līmenis)
 const ensurePetsTable = async () => {
@@ -130,34 +154,38 @@ const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret'
 const JWT_EXPIRATION = '8h'
 // Vienkārša ievades validācija
 const validateEmail = (email) => typeof email === 'string' && email.includes('@')
-const validatePassword = (password) => typeof password === 'string' && password.length >= 8
+// Basic check used for login/input presence
+const validatePassword = (password) => typeof password === 'string' && password.length > 0
+// Strong password policy for creation: min 8 chars, at least one digit and one special symbol
+const validatePasswordComplex = (password) =>
+  typeof password === 'string' && /^(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>\/?`~]).{8,}$/.test(password)
 // JWT ģenerēšana un autorizācijas starpprogrammatūra
 const generateToken = (user) => jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: JWT_EXPIRATION })
 // Middleware, kas pārbauda `Authorization: Bearer <token>` un pievieno `req.user`
 const authMiddleware = (req, res, next) => {
   const authHeader = req.headers.authorization || ''
   const token = authHeader.replace('Bearer ', '')
-  if (!token) return res.status(401).json({ error: 'Missing authorization token' })
+  if (!token) return res.status(401).json({ error: 'Trūkst autorizācijas tokena' })
   try {
     const payload = jwt.verify(token, JWT_SECRET)
     req.user = payload
     next()
   } catch (error) {
-    return res.status(401).json({ error: 'Invalid or expired token' })
+    return res.status(401).json({ error: 'Nederīgs vai beidzies tokens' })
   }
 }
 // API maršruti: reģistrācija, pieteikšanās, profila pārvaldība, draugi, uzdevumi, inventārs
-app.get('/', (req, res) => res.json({ status: 'ok', message: 'PostgreSQL auth backend is running' }))
+app.get('/', (req, res) => res.json({ status: 'ok', message: 'PostgreSQL autentifikācijas backend darbojas' }))
 app.post('/api/setup-moderator', async (req, res) => {
   const { secret, email, password } = req.body
   if (secret !== 'setup_moderator_2026')
-    return res.status(403).json({ error: 'Invalid secret.' })
-  if (!validateEmail(email) || !validatePassword(password))
-    return res.status(400).json({ error: 'Provide valid email and password (min 8 chars).' })
+    return res.status(403).json({ error: 'Nederīgs noslēpums.' })
+  if (!validateEmail(email) || !validatePasswordComplex(password))
+    return res.status(400).json({ error: 'Norādiet derīgu e-pastu un paroli (vismaz 8 rakstzīmes; jāiekļauj vismaz 1 cipars un 1 speciāls simbols).' })
   try {
     await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user'")
     const existing = await pool.query('SELECT id FROM users WHERE role = $1', ['moderator'])
-    if (existing.rows.length > 0) return res.status(409).json({ error: 'Moderator already exists.' })
+    if (existing.rows.length > 0) return res.status(409).json({ error: 'Moderators jau eksistē.' })
     const passwordHash = await bcrypt.hash(password, 10)
     const result = await pool.query(
       'INSERT INTO users (email, password_hash, role, nickname) VALUES ($1, $2, $3, $4) RETURNING id, email, role, created_at',
@@ -166,18 +194,18 @@ app.post('/api/setup-moderator', async (req, res) => {
     const user = result.rows[0]
     res.status(201).json({ user: { id: user.id, email: user.email, role: user.role, createdAt: user.created_at } })
   } catch (error) {
-    if (error.code === '23505') return res.status(409).json({ error: 'Email already registered.' })
+    if (error.code === '23505') return res.status(409).json({ error: 'E-pasts jau reģistrēts.' })
     console.error('Setup moderator error:', error)
-    res.status(500).json({ error: 'Unable to create moderator.' })
+    res.status(500).json({ error: 'Neizdevās izveidot moderatoru.' })
   }
 })
 app.post('/api/register', async (req, res) => {
   const { email, password, nickname } = req.body
-  if (!validateEmail(email) || !validatePassword(password))
-    return res.status(400).json({ error: 'Provide a valid email and a password with at least 8 characters.' })
+  if (!validateEmail(email) || !validatePasswordComplex(password))
+    return res.status(400).json({ error: 'Norādiet derīgu e-pastu un paroli (vismaz 8 rakstzīmes; jāiekļauj vismaz 1 cipars un 1 speciāls simbols).' })
   const passwordHash = await bcrypt.hash(password, 10)
   if (req.body.role === 'moderator')
-    return res.status(403).json({ error: "You cannot create a moderator account." })
+    return res.status(403).json({ error: 'Jūs nevarat izveidot moderatora kontu.' })
   const role = 'user'
   try {
     await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user'")
@@ -185,9 +213,9 @@ app.post('/api/register', async (req, res) => {
     if (nickname && typeof nickname === 'string') {
       const trimmedNick = nickname.trim().toLowerCase()
       if (trimmedNick.length < 4 || trimmedNick.length > 7)
-        return res.status(400).json({ error: 'Nickname must be 4-7 characters.' })
+        return res.status(400).json({ error: 'Segvārdam jābūt 4–7 rakstzīmēm.' })
       const nickCheck = await pool.query('SELECT id FROM users WHERE LOWER(nickname) = $1', [trimmedNick])
-      if (nickCheck.rows.length > 0) return res.status(409).json({ error: 'Nickname already taken.' })
+      if (nickCheck.rows.length > 0) return res.status(409).json({ error: 'Segvārds jau aizņemts.' })
       nickToStore = trimmedNick
     }
     const result = await pool.query(
@@ -197,9 +225,9 @@ app.post('/api/register', async (req, res) => {
     const user = result.rows[0]
     try {
       const candies = [
-        { name: 'Common Exp Candy', amount: 5, rarity: 'common', color: 'green', description: 'A small green sphere. Grants 5 XP.' },
-        { name: 'Uncommon Exp Candy', amount: 10, rarity: 'uncommon', color: 'blue', description: 'A small blue sphere. Grants 10 XP.' },
-        { name: 'Rare Exp Candy', amount: 15, rarity: 'rare', color: 'red', description: 'A small red sphere. Grants 15 XP.' },
+        { name: 'Parasta XP konfekte', amount: 5, rarity: 'common', color: 'green', description: 'Mazs zaļš bumbiņš. Piešķir 5 XP.' },
+        { name: 'Neparasta XP konfekte', amount: 10, rarity: 'uncommon', color: 'blue', description: 'Mazs zils bumbiņš. Piešķir 10 XP.' },
+        { name: 'Retā XP konfekte', amount: 15, rarity: 'rare', color: 'red', description: 'Mazs sarkans bumbiņš. Piešķir 15 XP.' },
       ]
       for (const c of candies) {
         await pool.query(
@@ -210,51 +238,55 @@ app.post('/api/register', async (req, res) => {
     } catch (e) {
       console.error('Failed to insert starter candies for user', user.id, e)
     }
+    try {
+      await sendWelcomeEmail(user.email, user.nickname || null)
+    } catch (e) {
+      console.error('Failed to send welcome email to', user.email, e)
+    }
     res.status(201).json({ user: { id: user.id, email: user.email, role: user.role, createdAt: user.created_at } })
   } catch (error) {
-    if (error.code === '23505') return res.status(409).json({ error: 'Email or nickname already registered.' })
+    if (error.code === '23505') return res.status(409).json({ error: 'E-pasts vai segvārds jau reģistrēts.' })
     console.error('Register error:', error)
-    res.status(500).json({ error: 'Unable to create user.' })
+    res.status(500).json({ error: 'Neizdevās izveidot lietotāju.' })
   }
 })
 // Izveido lietotāju un mājdzīvnieku atomiski — ja viena daļa neizdodas, tiek atcelts viss
-// Create user and pet together in a single transactional endpoint so we only persist a user when the pet is created successfully.
 app.post('/api/create-pet', async (req, res) => {
   const { email, password, nickname, name, appearance, color, gender } = req.body
-  if (!validateEmail(email) || !validatePassword(password)) return res.status(400).json({ error: 'Provide a valid email and a password with at least 8 characters.' })
-  if (!name || !appearance || !color) return res.status(400).json({ error: 'Pet name, appearance and color are required.' })
+  if (!validateEmail(email) || !validatePasswordComplex(password)) return res.status(400).json({ error: 'Norādiet derīgu e-pastu un paroli (vismaz 8 rakstzīmes; jāiekļauj vismaz 1 cipars un 1 speciāls simbols).' })
+  if (!name || !appearance || !color) return res.status(400).json({ error: 'Mājdzīvnieka nosaukums, izskats un krāsa ir obligāti.' })
 
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     const normalizedEmail = email.toLowerCase().trim()
 
-    // Check if user already exists
+    // Pārbauda, vai lietotājs jau eksistē
     const existing = await client.query('SELECT id, password_hash FROM users WHERE email = $1 LIMIT 1', [normalizedEmail])
     let userId
     let createdNewUser = false
     if (existing.rows.length > 0) {
-      // verify password for existing account
+      // Pārbauda paroles atbilstību esošam kontam
       const row = existing.rows[0]
       const match = await bcrypt.compare(password, row.password_hash)
       if (!match) {
         await client.query('ROLLBACK')
-        return res.status(401).json({ error: 'Invalid credentials for existing account.' })
+        return res.status(401).json({ error: 'Nederīgi akreditācijas dati esošam kontam.' })
       }
       userId = row.id
     } else {
-      // create new user
+      // Izveido jaunu lietotāju
       let nickToStore = null
       if (nickname && typeof nickname === 'string') {
         const trimmedNick = nickname.trim().toLowerCase()
         if (trimmedNick.length < 4 || trimmedNick.length > 7) {
           await client.query('ROLLBACK')
-          return res.status(400).json({ error: 'Nickname must be 4-7 characters.' })
+          return res.status(400).json({ error: 'Segvārdam jābūt 4–7 rakstzīmēm.' })
         }
         const nickCheck = await client.query('SELECT id FROM users WHERE LOWER(nickname) = $1', [trimmedNick])
         if (nickCheck.rows.length > 0) {
           await client.query('ROLLBACK')
-          return res.status(409).json({ error: 'Nickname already taken.' })
+          return res.status(409).json({ error: 'Segvārds jau aizņemts.' })
         }
         nickToStore = trimmedNick
       }
@@ -264,24 +296,42 @@ app.post('/api/create-pet', async (req, res) => {
       createdNewUser = true
     }
 
-    // Ensure the user doesn't already have a pet
+    // Pārliecinās, ka lietotājs vēl nav izveidojis mājdzīvnieku
     const petCheck = await client.query('SELECT id FROM pets WHERE user_id = $1 LIMIT 1', [userId])
     if (petCheck.rows.length > 0) {
       await client.query('ROLLBACK')
-      return res.status(409).json({ error: 'A pet already exists for this account.' })
+      return res.status(409).json({ error: 'Šim kontam jau ir mājdzīvnieks.' })
     }
 
     const petName = String(name).trim().substring(0, 50)
-    const ins = await client.query('INSERT INTO pets (user_id, name, appearance, color, gender, xp, level) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, appearance, color, gender, xp, level', [userId, petName, appearance, color, gender || null, 0, 1])
+
+    // Normalizē izskata vērtības: pieņem 'dog'/'cat' (klienta etiķetes) un mapē uz kanoniskajām DB vērtībām ('cube' un 'pyramid').
+    const appearanceInput = String(appearance || '').toLowerCase()
+    const appearanceMap = {
+      dog: 'cube',
+      cube: 'cube',
+      cat: 'pyramid',
+      pyramid: 'pyramid'
+    }
+    const appearanceToStore = appearanceMap[appearanceInput] || appearanceInput
+
+    // Nodrošina atļautās izskata vērtības, lai izvairītos no DB ierobežojumu kļūdām
+    const allowedAppearances = ['cube', 'pyramid']
+    if (!allowedAppearances.includes(appearanceToStore)) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ error: 'Izvēlēts nederīgs izskats.' })
+    }
+
+    const ins = await client.query('INSERT INTO pets (user_id, name, appearance, color, gender, xp, level) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, appearance, color, gender, xp, level', [userId, petName, appearanceToStore, color, gender || null, 0, 1])
     const pet = ins.rows[0]
 
-    // If we created a new user, give starter items
+    // Ja izveidots jauns lietotājs, piešķir starta priekšmetus
     if (createdNewUser) {
       try {
         const candies = [
-          { name: 'Common Exp Candy', amount: 5, rarity: 'common', color: 'green', description: 'A small green sphere. Grants 5 XP.' },
-          { name: 'Uncommon Exp Candy', amount: 10, rarity: 'uncommon', color: 'blue', description: 'A small blue sphere. Grants 10 XP.' },
-          { name: 'Rare Exp Candy', amount: 15, rarity: 'rare', color: 'red', description: 'A small red sphere. Grants 15 XP.' },
+          { name: 'Parasta XP konfekte', amount: 5, rarity: 'common', color: 'green', description: 'Mazs zaļš bumbiņš. Piešķir 5 XP.' },
+          { name: 'Neparasta XP konfekte', amount: 10, rarity: 'uncommon', color: 'blue', description: 'Mazs zils bumbiņš. Piešķir 10 XP.' },
+          { name: 'Retā XP konfekte', amount: 15, rarity: 'rare', color: 'red', description: 'Mazs sarkans bumbiņš. Piešķir 15 XP.' },
         ]
         for (const c of candies) {
           await client.query('INSERT INTO items (user_id, name, type, subtype, payload, rarity) VALUES ($1,$2,$3,$4,$5,$6)', [userId, c.name, 'consumable', 'xp', JSON.stringify({ amount: c.amount, description: c.description, appearance: 'sphere', color: c.color }), c.rarity])
@@ -292,118 +342,129 @@ app.post('/api/create-pet', async (req, res) => {
     }
 
     await client.query('COMMIT')
+    if (createdNewUser) {
+      try {
+        await sendWelcomeEmail(normalizedEmail, nickname || null)
+      } catch (e) {
+        console.error('Failed to send welcome email to', normalizedEmail, e)
+      }
+    }
     res.status(201).json({ pet })
   } catch (error) {
     try { await client.query('ROLLBACK') } catch (e) {}
     console.error('Create pet error:', error)
-    res.status(500).json({ error: 'Unable to create pet.' })
+    res.status(500).json({ error: 'Neizdevās izveidot mājdzīvnieku.' })
   } finally {
     client.release()
   }
 })
 
-app.post('/api/check-email', async (req, res) => { const { email } = req.body; 
-if (!email || typeof email !== 'string') 
-  return res.status(400).json({ error: 'Email is required.' }); 
-try { const normalized = email.toLowerCase().trim(); 
-  const result = await pool.query('SELECT id, email FROM users WHERE email = $1', [normalized]); 
-  if (result.rows.length > 0) 
-    return res.json({ exists: true, user: { id: result.rows[0].id, email: result.rows[0].email } });
-  
-  res.json({ exists: false }) } catch (err) { console.error('Check email error:', err); 
-    res.status(500).json({ error: 'Unable to check email.' }) 
-  } 
+app.post('/api/check-email', async (req, res) => {
+  const { email } = req.body
+  if (!email || typeof email !== 'string') return res.status(400).json({ error: 'E-pasts ir obligāts.' })
+  try {
+    const normalized = email.toLowerCase().trim()
+    const result = await pool.query('SELECT id, email FROM users WHERE email = $1', [normalized])
+    if (result.rows.length > 0) return res.json({ exists: true, user: { id: result.rows[0].id, email: result.rows[0].email } })
+    return res.json({ exists: false })
+  } catch (err) {
+    console.error('Check email error:', err)
+    res.status(500).json({ error: 'Neizdevās pārbaudīt e-pastu.' })
+  }
 })
 
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body
   if (!validateEmail(email) || !validatePassword(password))
-    return res.status(400).json({ error: 'Provide a valid email and password.' })
+    return res.status(400).json({ error: 'Norādiet derīgu e-pastu un paroli.' })
   try {
     const result = await pool.query('SELECT id, email, nickname, password_hash, role FROM users WHERE email = $1', [email.toLowerCase().trim()])
     const user = result.rows[0]
-    if (!user) return res.status(401).json({ error: 'Invalid email or password.' })
+    if (!user) return res.status(401).json({ error: 'Nederīgs e-pasts vai parole.' })
     const passwordMatches = await bcrypt.compare(password, user.password_hash)
-    if (!passwordMatches) return res.status(401).json({ error: 'Invalid email or password.' })
+    if (!passwordMatches) return res.status(401).json({ error: 'Nederīgs e-pasts vai parole.' })
     const petResult = await pool.query('SELECT id, name, appearance, color, gender, xp, level FROM pets WHERE user_id = $1', [user.id])
     const token = generateToken(user)
     res.json({ token, user: { id: user.id, email: user.email, nickname: user.nickname, role: user.role, pet: petResult.rows[0] || null } })
   } catch (error) {
     console.error('Login error:', error)
-    res.status(500).json({ error: 'Unable to log in.' })
+    res.status(500).json({ error: 'Neizdevās pieteikties.' })
   }
 })
 app.get('/api/profile', authMiddleware, async (req, res) => {
   try {
     const result = await pool.query('SELECT id, email, nickname, role, created_at FROM users WHERE id = $1', [req.user.userId])
     const user = result.rows[0]
-    if (!user) return res.status(404).json({ error: 'User not found.' })
+    if (!user) return res.status(404).json({ error: 'Lietotājs nav atrasts.' })
     const petResult = await pool.query('SELECT id, name, appearance, color, gender, xp, level FROM pets WHERE user_id = $1', [req.user.userId])
     res.json({ user: { id: user.id, email: user.email, nickname: user.nickname, createdAt: user.created_at, pet: petResult.rows[0] || null } })
   } catch (error) {
     console.error('Profile error:', error)
-    res.status(500).json({ error: 'Unable to load profile.' })
+    res.status(500).json({ error: 'Neizdevās ielādēt profilu.' })
   }
 })
 app.post('/api/check-nickname', async (req, res) => {
   const { nickname } = req.body
-  if (!nickname || typeof nickname !== 'string') return res.status(400).json({ error: 'Nickname is required.' })
+  if (!nickname || typeof nickname !== 'string') return res.status(400).json({ error: 'Segvārds ir obligāts.' })
   const trimmed = nickname.trim().toLowerCase()
-  if (trimmed.length < 4 || trimmed.length > 7) return res.status(400).json({ error: 'Nickname must be 4-7 characters.' })
+  if (trimmed.length < 4 || trimmed.length > 7) return res.status(400).json({ error: 'Segvārdam jābūt 4–7 rakstzīmēm.' })
   try {
     const result = await pool.query('SELECT id, email FROM users WHERE LOWER(nickname) = $1', [trimmed])
     if (result.rows.length > 0) return res.json({ exists: true, user: { id: result.rows[0].id, email: result.rows[0].email } })
     res.json({ exists: false })
   } catch (error) {
     console.error('Check nickname error:', error)
-    res.status(500).json({ error: 'Unable to check nickname.' })
+    res.status(500).json({ error: 'Neizdevās pārbaudīt segvārdu.' })
   }
 })
 app.post('/api/set-nickname', async (req, res) => {
   const { email, nickname } = req.body
-  if (!email || !nickname || typeof nickname !== 'string') return res.status(400).json({ error: 'Email and nickname are required.' })
+  if (!email || !nickname || typeof nickname !== 'string') return res.status(400).json({ error: 'E-pasts un segvārds ir obligāti.' })
   const trimmed = nickname.trim().toLowerCase()
-  if (trimmed.length < 4 || trimmed.length > 7) return res.status(400).json({ error: 'Nickname must be 4-7 characters.' })
+  if (trimmed.length < 4 || trimmed.length > 7) return res.status(400).json({ error: 'Segvārdam jābūt 4–7 rakstzīmēm.' })
   try {
     const checkResult = await pool.query('SELECT id FROM users WHERE LOWER(nickname) = $1', [trimmed])
-    if (checkResult.rows.length > 0) return res.status(409).json({ error: 'Nickname already taken.' })
+    if (checkResult.rows.length > 0) return res.status(409).json({ error: 'Segvārds jau aizņemts.' })
     await pool.query('UPDATE users SET nickname = $1 WHERE email = $2', [trimmed, email.toLowerCase().trim()])
     res.json({ success: true, nickname: trimmed })
   } catch (error) {
     console.error('Set nickname error:', error)
-    res.status(500).json({ error: 'Unable to set nickname.' })
+    res.status(500).json({ error: 'Neizdevās iestatīt segvārdu.' })
   }
 })
 app.delete('/api/users/:userId', authMiddleware, async (req, res) => {
   try {
     const userResult = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.userId])
-    if (userResult.rows.length === 0) return res.status(404).json({ error: 'User not found.' })
-    if (userResult.rows[0].role !== 'moderator') return res.status(403).json({ error: 'Only moderators can delete users.' })
+    if (userResult.rows.length === 0) return res.status(404).json({ error: 'Lietotājs nav atrasts.' })
+    if (userResult.rows[0].role !== 'moderator') return res.status(403).json({ error: 'Tikai moderatoriem ir atļauts dzēst lietotājus.' })
     const targetUserId = parseInt(req.params.userId, 10)
-    if (isNaN(targetUserId)) return res.status(400).json({ error: 'Invalid user ID.' })
+    if (isNaN(targetUserId)) return res.status(400).json({ error: 'Nederīgs lietotāja ID.' })
     const targetResult = await pool.query('SELECT role FROM users WHERE id = $1', [targetUserId])
-    if (targetResult.rows.length === 0) return res.status(404).json({ error: 'Target user not found.' })
-    if (targetResult.rows[0].role === 'moderator') return res.status(403).json({ error: 'Cannot delete other moderators.' })
+    if (targetResult.rows.length === 0) return res.status(404).json({ error: 'Mērķa lietotājs nav atrasts.' })
+    if (targetResult.rows[0].role === 'moderator') return res.status(403).json({ error: 'Nevar dzēst citus moderatorus.' })
     await pool.query('DELETE FROM pets WHERE user_id = $1', [targetUserId])
     await pool.query('DELETE FROM users WHERE id = $1', [targetUserId])
-    res.json({ success: true, message: 'User deleted successfully.' })
+    res.json({ success: true, message: 'Lietotājs veiksmīgi izdzēsts.' })
   } catch (error) {
     console.error('Delete user error:', error)
-    res.status(500).json({ error: 'Unable to delete user.' })
+    res.status(500).json({ error: 'Neizdevās izdzēst lietotāju.' })
   }
 })
 
 app.post('/api/create-moderator', authMiddleware, async (req, res) => {
   try {
     const userResult = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.userId])
-    if (userResult.rows.length === 0) return res.status(404).json({ error: 'User not found.' })
-    if (userResult.rows[0].role !== 'moderator') return res.status(403).json({ error: 'Only moderators can create other moderators.' })
+    if (userResult.rows.length === 0) return res.status(404).json({ error: 'Lietotājs nav atrasts.' })
+    if (userResult.rows[0].role !== 'moderator') return res.status(403).json({ error: 'Tikai moderatoriem ir atļauts izveidot citus moderatorus.' })
+
     const { email, password } = req.body
-    if (!validateEmail(email) || !validatePassword(password)) return res.status(400).json({ error: 'Provide a valid email and a password with at least 8 characters.' })
+    if (!validateEmail(email) || !validatePasswordComplex(password)) return res.status(400).json({ error: 'Norādiet derīgu e-pastu un paroli (vismaz 8 rakstzīmes; jāiekļauj vismaz 1 cipars un 1 speciāls simbols).' })
+
     const normalizedEmail = email.toLowerCase().trim()
     const existingEmail = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail])
-    if (existingEmail.rows.length > 0)
-         return res.status(409).json({ error: 'Email already registered.' })
+    
+        if (existingEmail.rows.length > 0)
+          return res.status(409).json({ error: 'E-pasts jau reģistrēts.' })
     const baseNick = 'moderator'; let nick = baseNick; let counter = 1
     while (true) { const nickCheck = await pool.query('SELECT id FROM users WHERE LOWER(nickname) = $1', [nick.toLowerCase()]); if (nickCheck.rows.length === 0) break; nick = `${baseNick}${counter}`; counter += 1 }
     const passwordHash = await bcrypt.hash(password, 10)
@@ -411,22 +472,22 @@ app.post('/api/create-moderator', authMiddleware, async (req, res) => {
     const user = result.rows[0]
     res.status(201).json({ user: { id: user.id, email: user.email, role: user.role, createdAt: user.created_at } })
   } catch (error) {
-    if (error.code === '23505') return res.status(409).json({ error: 'Email already registered.' })
+    if (error.code === '23505') return res.status(409).json({ error: 'E-pasts jau reģistrēts.' })
     console.error('Create moderator error:', error)
-    res.status(500).json({ error: 'Unable to create moderator.' })
+    res.status(500).json({ error: 'Neizdevās izveidot moderatoru.' })
   }
 })
 
 app.get('/api/users', authMiddleware, async (req, res) => {
   try {
     const userResult = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.userId])
-    if (userResult.rows.length === 0) return res.status(404).json({ error: 'User not found.' })
-    if (userResult.rows[0].role !== 'moderator') return res.status(403).json({ error: 'Only moderators can view all users.' })
+    if (userResult.rows.length === 0) return res.status(404).json({ error: 'Lietotājs nav atrasts.' })
+    if (userResult.rows[0].role !== 'moderator') return res.status(403).json({ error: 'Tikai moderatoriem ir atļauts skatīt visus lietotājus.' })
     const result = await pool.query('SELECT id, email, nickname, role, created_at FROM users ORDER BY created_at DESC')
     res.json({ users: result.rows })
   } catch (error) {
     console.error('Get users error:', error)
-    res.status(500).json({ error: 'Unable to fetch users.' })
+    res.status(500).json({ error: 'Neizdevās iegūt lietotāju sarakstu.' })
   }
 })
 
@@ -434,27 +495,45 @@ app.get('/api/users/search', authMiddleware, async (req, res) => {
   try {
     const rawQ = req.query.q
     const q = (rawQ || '').trim().toLowerCase()
+    const userId = req.user.userId
+    
     let result
     if (!q) {
-      result = await pool.query("SELECT id, nickname, role FROM users WHERE nickname IS NOT NULL AND nickname <> '' AND (role IS NULL OR role != 'moderator') AND id != $1 ORDER BY created_at DESC LIMIT 50", [req.user.userId])
+      result = await pool.query(`
+        SELECT id, nickname, role FROM users 
+        WHERE nickname IS NOT NULL AND nickname <> '' 
+        AND (role IS NULL OR role != 'moderator') 
+        AND id != $1 
+        AND id NOT IN (SELECT blocked_id FROM blocked_users WHERE blocker_id = $1)
+        ORDER BY created_at DESC LIMIT 50`, [userId])
     } else {
-      result = await pool.query("SELECT id, nickname, role FROM users WHERE nickname IS NOT NULL AND LOWER(nickname) LIKE $1 AND (role IS NULL OR role != 'moderator') AND id != $2 LIMIT 50", [q + '%', req.user.userId])
+      result = await pool.query(`
+        SELECT id, nickname, role FROM users 
+        WHERE nickname IS NOT NULL AND LOWER(nickname) LIKE $1 
+        AND (role IS NULL OR role != 'moderator') 
+        AND id != $2 
+        AND id NOT IN (SELECT blocked_id FROM blocked_users WHERE blocker_id = $2)
+        LIMIT 50`, [q + '%', userId])
     }
     res.json({ users: result.rows })
   } catch (err) {
     console.error('Search users error:', err)
-    res.status(500).json({ error: 'Unable to search users.' })
+    res.status(500).json({ error: 'Neizdevās meklēt lietotājus.' })
   }
 })
 
 app.get('/api/friends', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId
-    const result = await pool.query(`SELECT u.id, u.nickname FROM users u JOIN friend_requests fr ON ((fr.from_user_id = $1 AND fr.to_user_id = u.id) OR (fr.to_user_id = $1 AND fr.from_user_id = u.id)) WHERE fr.status = 'accepted'`, [userId])
+    const result = await pool.query(`
+      SELECT u.id, u.nickname FROM users u 
+      JOIN friend_requests fr ON ((fr.from_user_id = $1 AND fr.to_user_id = u.id) OR (fr.to_user_id = $1 AND fr.from_user_id = u.id)) 
+      WHERE fr.status = 'accepted'
+      AND u.id NOT IN (SELECT blocked_id FROM blocked_users WHERE blocker_id = $1)`, [userId])
     res.json({ friends: result.rows })
   } catch (err) {
     console.error('Get friends error:', err)
-    res.status(500).json({ error: 'Unable to fetch friends.' })
+    res.status(500).json({ error: 'Neizdevās iegūt draugus.' })
   }
 })
 
@@ -465,7 +544,7 @@ app.get('/api/friends/requests/incoming', authMiddleware, async (req, res) => {
     res.json({ requests: result.rows })
   } catch (err) {
     console.error('Incoming requests error:', err)
-    res.status(500).json({ error: 'Unable to fetch incoming requests.' })
+    res.status(500).json({ error: 'Neizdevās iegūt ienākošos pieprasījumus.' })
   }
 })
 
@@ -476,35 +555,35 @@ app.get('/api/friends/requests/outgoing', authMiddleware, async (req, res) => {
     res.json({ requests: result.rows })
   } catch (err) {
     console.error('Outgoing requests error:', err)
-    res.status(500).json({ error: 'Unable to fetch outgoing requests.' })
+    res.status(500).json({ error: 'Neizdevās iegūt izejošos pieprasījumus.' })
   }
 })
 
 app.post('/api/friends/request', authMiddleware, async (req, res) => {
   try {
     const { toNickname } = req.body
-    if (!toNickname || typeof toNickname !== 'string') return res.status(400).json({ error: 'Target nickname required.' })
+    if (!toNickname || typeof toNickname !== 'string') return res.status(400).json({ error: 'Mērķa segvārds ir obligāts.' })
     const targetResult = await pool.query('SELECT id, role FROM users WHERE LOWER(nickname) = $1', [toNickname.trim().toLowerCase()])
-    if (targetResult.rows.length === 0) return res.status(404).json({ error: 'User not found.' })
+    if (targetResult.rows.length === 0) return res.status(404).json({ error: 'Lietotājs nav atrasts.' })
     const targetId = targetResult.rows[0].id
     const targetRole = targetResult.rows[0].role
-    if (targetRole === 'moderator') return res.status(403).json({ error: 'Cannot send friend requests to moderators.' })
+    if (targetRole === 'moderator') return res.status(403).json({ error: 'Nevar sūtīt draugu pieprasījumus moderatoriem.' })
     const me = req.user.userId
-    if (targetId === me) return res.status(400).json({ error: 'Cannot send friend request to yourself.' })
+    if (targetId === me) return res.status(400).json({ error: 'Nevar sūtīt draugu pieprasījumu sev pašam.' })
     const existing = await pool.query('SELECT id, from_user_id, to_user_id, status FROM friend_requests WHERE (from_user_id = $1 AND to_user_id = $2) OR (from_user_id = $2 AND to_user_id = $1)', [me, targetId])
     if (existing.rows.length > 0) {
       const row = existing.rows[0]
-      if (row.status === 'accepted') return res.status(409).json({ error: 'Already friends.' })
+      if (row.status === 'accepted') return res.status(409).json({ error: 'Jūs jau esat draugi.' })
       if (row.status === 'pending') {
         if (row.from_user_id === targetId && row.to_user_id === me) { await pool.query('UPDATE friend_requests SET status = $1 WHERE id = $2', ['accepted', row.id]); return res.json({ accepted: true }) }
-        return res.status(409).json({ error: 'Friend request already pending.' })
+        return res.status(409).json({ error: 'Drauga pieprasījums jau gaida apstiprinājumu.' })
       }
     }
     const insert = await pool.query('INSERT INTO friend_requests (from_user_id, to_user_id, status) VALUES ($1, $2, $3) RETURNING id', [me, targetId, 'pending'])
     res.status(201).json({ requestId: insert.rows[0].id })
   } catch (err) {
     console.error('Send request error:', err)
-    res.status(500).json({ error: 'Unable to send friend request.' })
+    res.status(500).json({ error: 'Neizdevās nosūtīt drauga pieprasījumu.' })
   }
 })
 
@@ -513,15 +592,15 @@ app.post('/api/friends/requests/:id/accept', authMiddleware, async (req, res) =>
     const id = parseInt(req.params.id, 10)
     const userId = req.user.userId
     const result = await pool.query('SELECT id, from_user_id, to_user_id, status FROM friend_requests WHERE id = $1', [id])
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Request not found.' })
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Pieprasījums nav atrasts.' })
     const row = result.rows[0]
-    if (row.to_user_id !== userId) return res.status(403).json({ error: 'Not authorized.' })
-    if (row.status !== 'pending') return res.status(400).json({ error: 'Request is not pending.' })
+    if (row.to_user_id !== userId) return res.status(403).json({ error: 'Nav atļauts.' })
+    if (row.status !== 'pending') return res.status(400).json({ error: 'Pieprasījums nav gaidošs.' })
     await pool.query('UPDATE friend_requests SET status = $1 WHERE id = $2', ['accepted', id])
     res.json({ success: true })
   } catch (err) {
     console.error('Accept request error:', err)
-    res.status(500).json({ error: 'Unable to accept request.' })
+    res.status(500).json({ error: 'Neizdevās pieņemt pieprasījumu.' })
   }
 })
 
@@ -530,15 +609,15 @@ app.post('/api/friends/requests/:id/decline', authMiddleware, async (req, res) =
     const id = parseInt(req.params.id, 10)
     const userId = req.user.userId
     const result = await pool.query('SELECT id, from_user_id, to_user_id, status FROM friend_requests WHERE id = $1', [id])
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Request not found.' })
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Pieprasījums nav atrasts.' })
     const row = result.rows[0]
-    if (row.to_user_id !== userId && row.from_user_id !== userId) return res.status(403).json({ error: 'Not authorized.' })
-    if (row.status !== 'pending') return res.status(400).json({ error: 'Request is not pending.' })
+    if (row.to_user_id !== userId && row.from_user_id !== userId) return res.status(403).json({ error: 'Nav atļauts.' })
+    if (row.status !== 'pending') return res.status(400).json({ error: 'Pieprasījums nav gaidošs.' })
     await pool.query('UPDATE friend_requests SET status = $1 WHERE id = $2', ['declined', id])
     res.json({ success: true })
   } catch (err) {
     console.error('Decline request error:', err)
-    res.status(500).json({ error: 'Unable to decline request.' })
+    res.status(500).json({ error: 'Neizdevās noraidīt pieprasījumu.' })
   }
 })
 
@@ -547,15 +626,79 @@ app.post('/api/friends/requests/:id/cancel', authMiddleware, async (req, res) =>
     const id = parseInt(req.params.id, 10)
     const userId = req.user.userId
     const result = await pool.query('SELECT id, from_user_id, to_user_id, status FROM friend_requests WHERE id = $1', [id])
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Request not found.' })
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Pieprasījums nav atrasts.' })
     const row = result.rows[0]
-    if (row.from_user_id !== userId) return res.status(403).json({ error: 'Not authorized.' })
-    if (row.status !== 'pending') return res.status(400).json({ error: 'Request cannot be cancelled.' })
+    if (row.from_user_id !== userId) return res.status(403).json({ error: 'Nav atļauts.' })
+    if (row.status !== 'pending') return res.status(400).json({ error: 'Pieprasījumu nevar atcelt.' })
     await pool.query('DELETE FROM friend_requests WHERE id = $1', [id])
     res.json({ success: true })
   } catch (err) {
     console.error('Cancel request error:', err)
-    res.status(500).json({ error: 'Unable to cancel request.' })
+    res.status(500).json({ error: 'Neizdevās atcelt pieprasījumu.' })
+  }
+})
+
+// Block a user
+app.post('/api/users/block', authMiddleware, async (req, res) => {
+  try {
+    const { nickname } = req.body
+    if (!nickname || typeof nickname !== 'string') return res.status(400).json({ error: 'Segvārds ir obligāts.' })
+    
+    const targetResult = await pool.query('SELECT id FROM users WHERE LOWER(nickname) = $1', [nickname.trim().toLowerCase()])
+    if (targetResult.rows.length === 0) return res.status(404).json({ error: 'Lietotājs nav atrasts.' })
+    
+    const targetId = targetResult.rows[0].id
+    const blockerId = req.user.userId
+    
+    if (targetId === blockerId) return res.status(400).json({ error: 'Nevar bloķēt sevi.' })
+    
+    // Check if already blocked
+    const existing = await pool.query('SELECT id FROM blocked_users WHERE blocker_id = $1 AND blocked_id = $2', [blockerId, targetId])
+    if (existing.rows.length > 0) return res.status(409).json({ error: 'Lietotājs jau ir bloķēts.' })
+    
+    await pool.query('INSERT INTO blocked_users (blocker_id, blocked_id) VALUES ($1, $2)', [blockerId, targetId])
+    
+    // Remove any friend relationship
+    await pool.query('DELETE FROM friend_requests WHERE (from_user_id = $1 AND to_user_id = $2) OR (from_user_id = $2 AND to_user_id = $1)', [blockerId, targetId])
+    
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Block user error:', err)
+    res.status(500).json({ error: 'Neizdevās bloķēt lietotāju.' })
+  }
+})
+
+// Unblock a user
+app.post('/api/users/unblock', authMiddleware, async (req, res) => {
+  try {
+    const { nickname } = req.body
+    if (!nickname || typeof nickname !== 'string') return res.status(400).json({ error: 'Segvārds ir obligāts.' })
+    
+    const targetResult = await pool.query('SELECT id FROM users WHERE LOWER(nickname) = $1', [nickname.trim().toLowerCase()])
+    if (targetResult.rows.length === 0) return res.status(404).json({ error: 'Lietotājs nav atrasts.' })
+    
+    const targetId = targetResult.rows[0].id
+    const blockerId = req.user.userId
+    
+    const result = await pool.query('DELETE FROM blocked_users WHERE blocker_id = $1 AND blocked_id = $2 RETURNING id', [blockerId, targetId])
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Lietotājs nav bloķēts.' })
+    
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Unblock user error:', err)
+    res.status(500).json({ error: 'Neizdevās atbloķēt lietotāju.' })
+  }
+})
+
+// Get blocked users list
+app.get('/api/users/blocked', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId
+    const result = await pool.query('SELECT u.id, u.nickname FROM blocked_users bu JOIN users u ON bu.blocked_id = u.id WHERE bu.blocker_id = $1', [userId])
+    res.json({ blocked: result.rows })
+  } catch (err) {
+    console.error('Get blocked users error:', err)
+    res.status(500).json({ error: 'Neizdevās iegūt bloķētos lietotājus.' })
   }
 })
 
@@ -676,7 +819,7 @@ app.get('/api/tasks', authMiddleware, async (req, res) => {
     res.json({ tasks })
   } catch (err) {
     console.error('Get tasks error:', err)
-    res.status(500).json({ error: 'Unable to fetch tasks.' })
+    res.status(500).json({ error: 'Neizdevās iegūt uzdevumus.' })
   }
 })
 
@@ -685,17 +828,17 @@ app.post('/api/tasks', authMiddleware, async (req, res) => {
     const userId = req.user.userId
     const { title, xp = 5, durationSeconds = null, friendId = null } = req.body
     const xpValueToStore = Math.min(10, Math.max(0, parseInt(xp, 10) || 0))
-    if (!title || typeof title !== 'string') return res.status(400).json({ error: 'Title is required.' })
+    if (!title || typeof title !== 'string') return res.status(400).json({ error: 'Uzdevuma nosaukums ir obligāts.' })
     let isShared = false
     const participants = [userId]
     if (friendId) {
       const friendIdNum = parseInt(friendId, 10)
-      if (isNaN(friendIdNum)) return res.status(400).json({ error: 'Invalid friendId.' })
+      if (isNaN(friendIdNum)) return res.status(400).json({ error: 'Nederīgs drauga ID.' })
       const friendship = await pool.query(
         `SELECT id FROM friend_requests WHERE ((from_user_id = $1 AND to_user_id = $2) OR (from_user_id = $2 AND to_user_id = $1)) AND status = $3`,
         [userId, friendIdNum, 'accepted']
       )
-      if (friendship.rows.length === 0) return res.status(403).json({ error: 'You are not friends with that user.' })
+      if (friendship.rows.length === 0) return res.status(403).json({ error: 'Jūs neesat draugs ar šo lietotāju.' })
       isShared = true
       participants.push(friendIdNum)
     }
@@ -722,7 +865,7 @@ app.post('/api/tasks', authMiddleware, async (req, res) => {
     res.status(201).json({ task })
   } catch (err) {
     console.error('Create task error:', err)
-    res.status(500).json({ error: 'Unable to create task.' })
+    res.status(500).json({ error: 'Neizdevās izveidot uzdevumu.' })
   }
 })
 
@@ -734,7 +877,7 @@ app.post('/api/tasks/:id/complete', authMiddleware, async (req, res) => {
     const taskId = parseInt(req.params.id, 10)
     if (isNaN(taskId)) {
       await client.query('ROLLBACK')
-      return res.status(400).json({ error: 'Invalid task id.' })
+      return res.status(400).json({ error: 'Nederīgs uzdevuma ID.' })
     }
     const rowRes = await client.query(
       'SELECT tp.id AS tp_id, tp.completed, t.xp, t.is_shared, t.is_system FROM task_participants tp JOIN tasks t ON t.id = tp.task_id WHERE tp.task_id = $1 AND tp.user_id = $2 FOR UPDATE',
@@ -742,12 +885,12 @@ app.post('/api/tasks/:id/complete', authMiddleware, async (req, res) => {
     )
     if (rowRes.rows.length === 0) {
       await client.query('ROLLBACK')
-      return res.status(404).json({ error: 'Task or participant not found.' })
+      return res.status(404).json({ error: 'Uzdevums vai dalībnieks nav atrasts.' })
     }
     const row = rowRes.rows[0]
     if (row.completed) {
       await client.query('COMMIT')
-      return res.json({ success: true, message: 'Already completed.' })
+      return res.json({ success: true, message: 'Jau pabeigts.' })
     }
     await client.query('UPDATE task_participants SET completed = $1, completed_at = NOW() WHERE id = $2', [true, row.tp_id])
     const allRes = await client.query('SELECT bool_and(completed) AS all_completed FROM task_participants WHERE task_id = $1', [taskId])
@@ -755,9 +898,9 @@ app.post('/api/tasks/:id/complete', authMiddleware, async (req, res) => {
 
     const pickSystemDrop = () => {
       const drops = [
-        { name: 'Small XP Pack', type: 'consumable', subtype: 'xp', payload: { amount: 10 } },
-        { name: 'Freeze Timer', type: 'consumable', subtype: 'freeze', payload: { durationSeconds: 15 } },
-        { name: 'XP Boost', type: 'consumable', subtype: 'boost', payload: { multiplier: 1.5, uses: 3, expiresHours: 24 } },
+        { name: 'Mazs XP komplekts', type: 'consumable', subtype: 'xp', payload: { amount: 10 } },
+        { name: 'Sasalšanas taimeris', type: 'consumable', subtype: 'freeze', payload: { durationSeconds: 15 } },
+        { name: 'XP pastiprinājums', type: 'consumable', subtype: 'boost', payload: { multiplier: 1.5, uses: 3, expiresHours: 24 } },
       ]
       return drops[Math.floor(Math.random() * drops.length)]
     }
@@ -791,7 +934,7 @@ app.post('/api/tasks/:id/complete', authMiddleware, async (req, res) => {
       let awardedItem = null
       if (newLevel > prevLevel) {
         await client.query('UPDATE pets SET level = $1 WHERE user_id = $2', [newLevel, uId])
-        const itemName = `Level ${newLevel} Reward`
+        const itemName = `Līmeņa ${newLevel} balva`
         const insertIt = await client.query('INSERT INTO items (user_id, name, type, subtype, payload) VALUES ($1,$2,$3,$4,$5) RETURNING id', [uId, itemName, 'eternal', 'level', JSON.stringify({ level: newLevel })])
         awardedItem = insertIt.rows[0]
       }
@@ -801,7 +944,7 @@ app.post('/api/tasks/:id/complete', authMiddleware, async (req, res) => {
     if (row.is_shared) {
       if (!allCompleted) {
         await client.query('COMMIT')
-        return res.json({ success: true, message: 'Marked completed. Waiting for other participants.', allCompleted: false })
+        return res.json({ success: true, message: 'Atzīmēts kā pabeigts. Gaida pārējos dalībniekus.', allCompleted: false })
       }
       const parts = await client.query('SELECT user_id FROM task_participants WHERE task_id = $1', [taskId])
       const userIds = parts.rows.map((r) => r.user_id)
@@ -839,7 +982,7 @@ app.post('/api/tasks/:id/complete', authMiddleware, async (req, res) => {
     } catch (e) {
     }
     console.error('Complete task error:', err)
-    res.status(500).json({ error: 'Unable to complete task.' })
+    res.status(500).json({ error: 'Neizdevās pabeigt uzdevumu.' })
   } finally {
     client.release()
   }
@@ -880,7 +1023,7 @@ app.post('/api/tasks/seed', authMiddleware, async (req, res) => {
     res.json({ seeded: true })
   } catch (err) {
     console.error('Seed tasks error:', err)
-    res.status(500).json({ error: 'Unable to seed tasks.' })
+    res.status(500).json({ error: 'Neizdevās izveidot parauga uzdevumus.' })
   }
 })
 
@@ -895,7 +1038,7 @@ app.get('/api/inventory', authMiddleware, async (req, res) => {
     res.json({ items: result.rows })
   } catch (err) {
     console.error('Get inventory error:', err)
-    res.status(500).json({ error: 'Unable to fetch inventory.' })
+    res.status(500).json({ error: 'Neizdevās iegūt inventāru.' })
   }
 })
 
@@ -903,7 +1046,7 @@ app.post('/api/inventory/create', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId
     const { name, type = 'consumable', subtype = null, payload = {}, rarity = 'common' } = req.body
-    if (!name || typeof name !== 'string') return res.status(400).json({ error: 'Invalid name' })
+    if (!name || typeof name !== 'string') return res.status(400).json({ error: 'Nederīgs nosaukums' })
     const insert = await pool.query(
       'INSERT INTO items (user_id, name, type, subtype, payload, rarity) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, type, subtype, payload, rarity',
       [userId, name, type, subtype, JSON.stringify(payload), rarity]
@@ -911,7 +1054,7 @@ app.post('/api/inventory/create', authMiddleware, async (req, res) => {
     res.status(201).json({ item: insert.rows[0] })
   } catch (err) {
     console.error('Create item error:', err)
-    res.status(500).json({ error: 'Unable to create item.' })
+    res.status(500).json({ error: 'Neizdevās izveidot priekšmetu.' })
   }
 })
 
@@ -919,12 +1062,12 @@ app.delete('/api/inventory/:id', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId
     const id = parseInt(req.params.id, 10)
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+    if (isNaN(id)) return res.status(400).json({ error: 'Nederīgs ID' })
     await pool.query('DELETE FROM items WHERE id = $1 AND user_id = $2', [id, userId])
     res.json({ success: true })
   } catch (err) {
     console.error('Delete item error:', err)
-    res.status(500).json({ error: 'Unable to delete item.' })
+    res.status(500).json({ error: 'Neizdevās izdzēst priekšmetu.' })
   }
 })
 
@@ -936,17 +1079,17 @@ app.post('/api/inventory/use/:id', authMiddleware, async (req, res) => {
     const id = parseInt(req.params.id, 10)
     if (isNaN(id)) {
       await client.query('ROLLBACK')
-      return res.status(400).json({ error: 'Invalid id' })
+      return res.status(400).json({ error: 'Nederīgs ID' })
     }
     const rowRes = await client.query('SELECT id, name, type, subtype, payload, consumed FROM items WHERE id = $1 AND user_id = $2 FOR UPDATE', [id, userId])
     if (rowRes.rows.length === 0) {
       await client.query('ROLLBACK')
-      return res.status(404).json({ error: 'Item not found' })
+      return res.status(404).json({ error: 'Priekšmets nav atrasts' })
     }
     const item = rowRes.rows[0]
     if (item.consumed) {
       await client.query('ROLLBACK')
-      return res.status(400).json({ error: 'Item already used' })
+      return res.status(400).json({ error: 'Priekšmets jau izmantots' })
     }
     if (item.type === 'consumable') {
       try {
@@ -1002,11 +1145,11 @@ app.post('/api/inventory/use/:id', authMiddleware, async (req, res) => {
     } catch (e) {
     }
     console.error('Use item error:', err)
-    res.status(500).json({ error: 'Unable to use item.' })
+    res.status(500).json({ error: 'Neizdevās izmantot priekšmetu.' })
   } finally {
     client.release()
   }
 })
 
 // Sāk express serveri norādītajā portā
-app.listen(PORT, () => console.log(`Auth backend listening on http://localhost:${PORT}`))
+app.listen(PORT, () => console.log(`Autentifikācijas backend klausās uz http://localhost:${PORT}`))
