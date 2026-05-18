@@ -11,7 +11,6 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { sendWelcomeEmail } from './utils/email.js'
 import { resolvePgPoolConfig } from './utils/db.js'
-import './jobs/taskReminder.js'
 const { Pool } = pkg
 dotenv.config()
 // Ielādē `.env` failu un inicializē vides mainīgos (piem., DATABASE_URL, JWT_SECRET)
@@ -71,7 +70,6 @@ const ensureUsersTable = async () => {
     console.error('Failed to ensure users table:', err)
   }
 }
-ensureUsersTable()
 
 // Draugu pieprasījumu tabula: nodrošina `friend_requests` struktūru
 const ensureFriendTables = async () => { try { await pool.query(`
@@ -84,7 +82,6 @@ const ensureFriendTables = async () => { try { await pool.query(`
         UNIQUE (from_user_id, to_user_id)
       );
     `) } catch (err) { console.error('Failed to ensure friend tables:', err) } }
-ensureFriendTables()
 
 // Bloķēto lietotāju tabula
 const ensureBlockedUsersTable = async () => { try { await pool.query(`
@@ -96,7 +93,6 @@ const ensureBlockedUsersTable = async () => { try { await pool.query(`
         UNIQUE (blocker_id, blocked_id)
       );
     `) } catch (err) { console.error('Failed to ensure blocked users table:', err) } }
-ensureBlockedUsersTable()
 
 // Mājdzīvnieku tabula: glabā pet datus (nosaukums, izskats, xp, līmenis)
 const ensurePetsTable = async () => {
@@ -118,10 +114,8 @@ const ensurePetsTable = async () => {
     console.error('Failed to ensure pets table:', err)
   }
 }
-ensurePetsTable()
 // Pievieno nepieciešamās kolonnas pet tabulai, ja tās trūkst
 const ensurePetColumns = async () => { try { await pool.query("ALTER TABLE pets ADD COLUMN IF NOT EXISTS xp INTEGER DEFAULT 0"); await pool.query("ALTER TABLE pets ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1") } catch (err) { console.error('Failed to ensure pet columns:', err) } }
-ensurePetColumns()
 // Aprēķina, cik XP nepieciešams nākamajam līmenim
 function xpForNextLevel(level = 1) { const lvl = Math.max(1, Number(level) || 1); return 100 + (lvl - 1) * 5 }
 // Aprēķina pašreizējo līmeni, cik XP ir "iekšā" šajā līmenī un cik vajadzīgs nākamajam
@@ -150,7 +144,6 @@ const ensureItemsAndEffects = async () => { try { await pool.query(`
         created_at TIMESTAMP DEFAULT NOW()
       );
     `); try { await pool.query("ALTER TABLE items ADD COLUMN IF NOT EXISTS rarity VARCHAR(20) DEFAULT 'common'") } catch (err) { console.error('Failed ensuring rarity column for items:', err) } } catch (err) { console.error('Failed to ensure items/effects tables:', err) } }
-ensureItemsAndEffects()
 // Servera porti un JWT (autentifikācijas) iestatījumi
 const PORT = parseInt(process.env.PORT || '3000', 10)
 const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret'
@@ -758,7 +751,6 @@ const ensureTaskTables = async () => {
     try { await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE") } catch (colErr) { console.error('Failed ensuring is_system column for tasks:', colErr) }
   } catch (err) { console.error('Failed to ensure task tables:', err) }
 }
-ensureTaskTables()
 
 const ensureSystemUserAndTasks = async () => {
   try {
@@ -792,7 +784,17 @@ const ensureSystemUserAndTasks = async () => {
     setInterval(createSystemTaskForAllUsers, 30 * 60 * 1000)
   } catch (err) { console.error('Failed ensuring system user/tasks:', err) }
 }
-ensureSystemUserAndTasks()
+
+const initializeDatabase = async () => {
+  await ensureUsersTable()
+  await ensureFriendTables()
+  await ensureBlockedUsersTable()
+  await ensurePetsTable()
+  await ensurePetColumns()
+  await ensureItemsAndEffects()
+  await ensureTaskTables()
+  await ensureSystemUserAndTasks()
+}
 
 // Uzdevumu (tasks) API: iegūst un pārvalda lietotāja uzdevumus un balvas
 app.get('/api/tasks', authMiddleware, async (req, res) => {
@@ -1157,10 +1159,23 @@ app.post('/api/inventory/use/:id', authMiddleware, async (req, res) => {
   }
 })
 
-// Sākt express serveri norādītajā portā
-app.listen(PORT, () => console.log(`Autentifikācijas backend klausās uz http://localhost:${PORT}`))
-
 // SPA fallback: serve index.html for all non-API routes (must be last route)
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'))
 })
+
+const start = async () => {
+  try {
+    await initializeDatabase()
+    // Start reminders only after required tables exist.
+    await import('./jobs/taskReminder.js')
+    // Sākt express serveri norādītajā portā
+    app.listen(PORT, () => console.log(`Autentifikācijas backend klausās uz http://localhost:${PORT}`))
+  } catch (err) {
+    console.error('Failed to start server:', err)
+    process.exit(1)
+  }
+}
+
+start()
+
