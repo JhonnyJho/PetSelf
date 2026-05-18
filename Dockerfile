@@ -1,26 +1,38 @@
 # Stage 1: Build frontend
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy package.json and install dependencies
+# Copy package files
 COPY package*.json ./
-RUN npm install
 
-# Copy all files
+# Install dependencies (npm install is more forgiving than npm ci)
+RUN npm install --no-audit
+
+# Copy all source files
 COPY . .
 
-# Build Next.js frontend
+# Build Vite frontend
 RUN npm run build
 
 # Stage 2: Production image
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
-COPY --from=builder /app ./
+# Copy built files and dependencies from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+COPY server ./server
+COPY public ./public
 
+# Expose port
 EXPOSE 3000
 
-# Start backend server (it can also serve frontend via Next.js)
-CMD ["node", "index.js"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+# Start backend server
+CMD ["node", "server/index.js"]

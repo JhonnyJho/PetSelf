@@ -17,14 +17,16 @@ dotenv.config()
 const app = express()
 app.use(cors())
 app.use(express.json())
-// Apkalpo modeļu failus no public/models, kad tiek palaists Node serveris (noderīgi produkcijas būvei)
-try {
-  const __filename = fileURLToPath(import.meta.url)
-  const __dirname = path.dirname(__filename)
-  app.use('/models', express.static(path.join(__dirname, '..', 'public', 'models')))
-} catch (e) {
-  // Ignorēt, ja failu URL utilītas nav pieejamas dažās vidēs
-}
+
+// Serve built React frontend
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+// Serve static files from dist folder (built React app)
+app.use(express.static(path.join(__dirname, '..', 'dist')))
+
+// Serve 3D models from public
+app.use('/models', express.static(path.join(__dirname, '..', 'public', 'models')))
 // Pārbauda DATABASE_URL un izvada saprotamu kļūdas ziņojumu, ja konfigurācija nav derīga
 const DB_URL = process.env.DATABASE_URL
 if (!DB_URL) {
@@ -149,7 +151,7 @@ const ensureItemsAndEffects = async () => { try { await pool.query(`
     `); try { await pool.query("ALTER TABLE items ADD COLUMN IF NOT EXISTS rarity VARCHAR(20) DEFAULT 'common'") } catch (err) { console.error('Failed ensuring rarity column for items:', err) } } catch (err) { console.error('Failed to ensure items/effects tables:', err) } }
 ensureItemsAndEffects()
 // Servera porti un JWT (autentifikācijas) iestatījumi
-const PORT = parseInt(process.env.PORT || '4000', 10)
+const PORT = parseInt(process.env.PORT || '3000', 10)
 const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret'
 const JWT_EXPIRATION = '8h'
 // Vienkārša ievades validācija
@@ -176,6 +178,9 @@ const authMiddleware = (req, res, next) => {
 }
 // API maršruti: reģistrācija, pieteikšanās, profila pārvaldība, draugi, uzdevumi, inventārs
 app.get('/', (req, res) => res.json({ status: 'ok', message: 'PostgreSQL autentifikācijas backend darbojas' }))
+
+// Health check endpoint
+app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }))
 app.post('/api/setup-moderator', async (req, res) => {
   const { secret, email, password } = req.body
   if (secret !== 'setup_moderator_2026')
@@ -1151,5 +1156,10 @@ app.post('/api/inventory/use/:id', authMiddleware, async (req, res) => {
   }
 })
 
-// Sāk express serveri norādītajā portā
+// Sākt express serveri norādītajā portā
 app.listen(PORT, () => console.log(`Autentifikācijas backend klausās uz http://localhost:${PORT}`))
+
+// SPA fallback: serve index.html for all non-API routes (must be last route)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'))
+})
