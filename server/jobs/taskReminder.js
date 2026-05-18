@@ -2,9 +2,10 @@ import cron from 'node-cron'
 import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import { sendEmail } from '../utils/email.js'
+import { resolvePgPoolConfig } from '../utils/db.js'
 dotenv.config()
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false })
+const pool = new Pool(resolvePgPoolConfig(process.env.DATABASE_URL))
 
 async function ensureEmailNotificationsTable() {
   try {

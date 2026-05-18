@@ -10,6 +10,7 @@ import { URL } from 'url'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { sendWelcomeEmail } from './utils/email.js'
+import { resolvePgPoolConfig } from './utils/db.js'
 import './jobs/taskReminder.js'
 const { Pool } = pkg
 dotenv.config()
@@ -44,7 +45,7 @@ try {
 }
 
 // Izveido savienojumu ar PostgreSQL un reģistrē pool kļūdas
-const pool = new Pool({ connectionString: DB_URL, ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false })
+const pool = new Pool(resolvePgPoolConfig(DB_URL))
 pool.on('error', (err) => {
   console.error('Nezināma PostgreSQL kļūda poolā:', err && err.message ? err.message : err)
   if (err && err.message && err.message.includes('client password must be a string')) {

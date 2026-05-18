@@ -11,6 +11,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-petselfdb}
       POSTGRES_HOST: db
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-petselfdb}
+      DATABASE_SSL_MODE: ${DATABASE_SSL_MODE:-disable}
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
       JWT_SECRET: ${JWT_SECRET:-change_this_secret}
