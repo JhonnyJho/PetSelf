@@ -1,6 +1,5 @@
 import { useState } from 'react'
-
-const API_URL = 'http://localhost:4000'
+import { apiUrl } from './api'
 
 const LoginForm = ({ onLogin, onSwitchMode, formState, setFormState }) => {
   // Izmanto props, ja pieejami (saglabāšanai), citādi lokālu stāvokli
@@ -34,7 +33,7 @@ const LoginForm = ({ onLogin, onSwitchMode, formState, setFormState }) => {
     setLoading(true)
 
     try {
-      const response = await fetch(`${API_URL}/api/login`, {
+      const response = await fetch(apiUrl('/api/login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -53,7 +52,7 @@ const LoginForm = ({ onLogin, onSwitchMode, formState, setFormState }) => {
       onLogin(body.user)
       setMessage('Pieteikšanās veiksmīga!')
     } catch (err) {
-      setError('Tīkla kļūda. Pārliecinieties, ka backend darbojas vietnē http://localhost:4000')
+      setError('Tīkla kļūda. Pārliecinieties, ka backend ir sasniedzams.')
     } finally {
       setLoading(false)
     }

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import './App.css'
-
-const API_BASE = 'http://localhost:4000'
+import { apiUrl } from './api'
 
 export default function InventoryPanel({ onClose }) {
   const [items, setItems] = useState([])
@@ -19,7 +18,7 @@ export default function InventoryPanel({ onClose }) {
   const fetchItems = async () => {
     if (!token) return
     try {
-      const res = await fetch(`${API_BASE}/api/inventory`, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
+      const res = await fetch(apiUrl('/api/inventory'), { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
       const body = await res.json()
       if (res.ok) {
         setItems(body.items || [])
@@ -34,7 +33,7 @@ export default function InventoryPanel({ onClose }) {
   const removeItem = async (id) => {
     if (!token) return
     try {
-      const res = await fetch(`${API_BASE}/api/inventory/${id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
+      const res = await fetch(apiUrl(`/api/inventory/${id}`), { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
       if (res.ok) fetchItems()
     } catch (e) { console.error('Remove item error', e) }
   }
@@ -43,7 +42,7 @@ export default function InventoryPanel({ onClose }) {
     if (!token) return
     setUsingItemId(id)
     try {
-      const res = await fetch(`${API_BASE}/api/inventory/use/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
+      const res = await fetch(apiUrl(`/api/inventory/use/${id}`), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
       const body = await res.json()
       if (res.ok) {
         if (body.petXp != null || body.levelUp) {

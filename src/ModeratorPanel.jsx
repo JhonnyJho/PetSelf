@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-
-const API_URL = 'http://localhost:4000'
+import { apiUrl } from './api'
 
 const ModeratorPanel = ({ onLogout }) => {
   const [users, setUsers] = useState([])
@@ -21,7 +20,7 @@ const ModeratorPanel = ({ onLogout }) => {
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/users`, {
+      const response = await fetch(apiUrl('/api/users'), {
         headers: { Authorization: `Bearer ${token}` }
       })
       const body = await response.json()
@@ -49,7 +48,7 @@ const ModeratorPanel = ({ onLogout }) => {
     }
 
     try {
-      const response = await fetch(`${API_URL}/api/users/${userId}`, {
+      const response = await fetch(apiUrl(`/api/users/${userId}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       })
@@ -80,7 +79,7 @@ const ModeratorPanel = ({ onLogout }) => {
     }
 
     try {
-      const response = await fetch(`${API_URL}/api/create-moderator`, {
+      const response = await fetch(apiUrl('/api/create-moderator'), {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { apiUrl } from './api'
 
 export default function FriendsPanel({ onClose }) {
   const [tab, setTab] = useState('friends')
@@ -31,7 +32,7 @@ export default function FriendsPanel({ onClose }) {
 
   async function fetchFriends() {
     try {
-      const res = await fetch('http://localhost:4000/api/friends', { headers: { Authorization: `Bearer ${token}` } })
+      const res = await fetch(apiUrl('/api/friends'), { headers: { Authorization: `Bearer ${token}` } })
       const body = await res.json()
       setFriends(body.friends || [])
     } catch (err) {
@@ -41,7 +42,7 @@ export default function FriendsPanel({ onClose }) {
 
   async function fetchIncoming() {
     try {
-      const res = await fetch('http://localhost:4000/api/friends/requests/incoming', { headers: { Authorization: `Bearer ${token}` } })
+      const res = await fetch(apiUrl('/api/friends/requests/incoming'), { headers: { Authorization: `Bearer ${token}` } })
       const body = await res.json()
       setIncoming(body.requests || [])
     } catch (err) {
@@ -51,7 +52,7 @@ export default function FriendsPanel({ onClose }) {
 
   async function fetchOutgoing() {
     try {
-      const res = await fetch('http://localhost:4000/api/friends/requests/outgoing', { headers: { Authorization: `Bearer ${token}` } })
+      const res = await fetch(apiUrl('/api/friends/requests/outgoing'), { headers: { Authorization: `Bearer ${token}` } })
       const body = await res.json()
       setOutgoing(body.requests || [])
     } catch (err) {
@@ -61,7 +62,7 @@ export default function FriendsPanel({ onClose }) {
 
   async function fetchBlocked() {
     try {
-      const res = await fetch('http://localhost:4000/api/users/blocked', { headers: { Authorization: `Bearer ${token}` } })
+      const res = await fetch(apiUrl('/api/users/blocked'), { headers: { Authorization: `Bearer ${token}` } })
       const body = await res.json()
       setBlocked(body.blocked || [])
     } catch (err) {
@@ -72,7 +73,7 @@ export default function FriendsPanel({ onClose }) {
   async function doSearch(q) {
     setLoading(true)
     try {
-      let url = 'http://localhost:4000/api/users/search'
+      let url = apiUrl('/api/users/search')
       if (q && q.trim().length > 0) {
         url += `?q=${encodeURIComponent(q)}`
       }
@@ -88,7 +89,7 @@ export default function FriendsPanel({ onClose }) {
 
   async function sendRequest(nickname) {
     try {
-      const res = await fetch('http://localhost:4000/api/friends/request', {
+      const res = await fetch(apiUrl('/api/friends/request'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ toNickname: nickname }),
@@ -106,7 +107,7 @@ export default function FriendsPanel({ onClose }) {
 
   async function acceptRequest(id) {
     try {
-      const res = await fetch(`http://localhost:4000/api/friends/requests/${id}/accept`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+      const res = await fetch(apiUrl(`/api/friends/requests/${id}/accept`), { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
       if (res.ok) {
         await fetchAll()
       }
@@ -117,7 +118,7 @@ export default function FriendsPanel({ onClose }) {
 
   async function declineRequest(id) {
     try {
-      const res = await fetch(`http://localhost:4000/api/friends/requests/${id}/decline`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+      const res = await fetch(apiUrl(`/api/friends/requests/${id}/decline`), { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
       if (res.ok) {
         await fetchAll()
       }
@@ -128,7 +129,7 @@ export default function FriendsPanel({ onClose }) {
 
   async function cancelRequest(id) {
     try {
-      const res = await fetch(`http://localhost:4000/api/friends/requests/${id}/cancel`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+      const res = await fetch(apiUrl(`/api/friends/requests/${id}/cancel`), { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
       if (res.ok) await fetchAll()
     } catch (err) {
       console.error(err)
@@ -137,7 +138,7 @@ export default function FriendsPanel({ onClose }) {
 
   async function blockUser(nickname) {
     try {
-      const res = await fetch('http://localhost:4000/api/users/block', {
+      const res = await fetch(apiUrl('/api/users/block'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ nickname }),
@@ -155,7 +156,7 @@ export default function FriendsPanel({ onClose }) {
 
   async function unblockUser(nickname) {
     try {
-      const res = await fetch('http://localhost:4000/api/users/unblock', {
+      const res = await fetch(apiUrl('/api/users/unblock'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ nickname }),

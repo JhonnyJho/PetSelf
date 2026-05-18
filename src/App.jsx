@@ -11,6 +11,7 @@ import TasksPanel from './TasksPanel'
 import InventoryPanel from './InventoryPanel'
 import { getLevelProgress } from './level'
 import PetModel from './models/PetModel'
+import { apiUrl } from './api'
 
 // Lokalizācijas atbalsta kartes (lietotāja redzamām vērtībām)
 const appearanceLabels = { cube: 'Suns', pyramid: 'Kaķis', dog: 'Suns', cat: 'Kaķis' }
@@ -238,7 +239,7 @@ const App = () => {
       const token = localStorage.getItem('authToken')
       if (!token) return
       try {
-        const res = await fetch('http://localhost:4000/api/profile', { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
+        const res = await fetch(apiUrl('/api/profile'), { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
         const body = await res.json()
         if (res.ok) {
           setUser(body.user)
@@ -261,7 +262,7 @@ const App = () => {
     if (!token) return
     ;(async () => {
       try {
-        await fetch('http://localhost:4000/api/tasks/seed', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
+        await fetch(apiUrl('/api/tasks/seed'), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
       } catch (e) {
         // Ignorēt kļūdu
       }
@@ -363,7 +364,7 @@ const App = () => {
     setPendingUser(null)
     // Automātiska pieteikšanās pēc mājdzīvnieka izveides
     try {
-      const response = await fetch('http://localhost:4000/api/login', {
+      const response = await fetch(apiUrl('/api/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: pendingUser.email, password: pendingUser.password }),

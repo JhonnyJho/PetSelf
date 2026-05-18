@@ -2,8 +2,7 @@ import { useState, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Text } from '@react-three/drei'
 import PetModel from './models/PetModel'
-
-const API_URL = 'http://localhost:4000'
+import { apiUrl } from './api'
 
 const PetPreview = ({ appearance, color, name }) => {
   const ref = useRef()
@@ -81,7 +80,7 @@ const PetCreationForm = ({ email, password, nickname, onPetCreated, formState, s
     setLoading(true)
 
     try {
-      const response = await fetch(`${API_URL}/api/create-pet`, {
+      const response = await fetch(apiUrl('/api/create-pet'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, nickname, name, appearance, color, gender }),

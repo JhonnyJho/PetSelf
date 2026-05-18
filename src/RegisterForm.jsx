@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-
-const API_URL = 'http://localhost:4000'
+import { apiUrl } from './api'
 
 const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formState, setFormState }) => {
   // Izmanto props, ja pieejami (saglabāšanai), citādi lokālu stāvokli
@@ -56,7 +55,7 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
 
     try {
       // Pārbauda, vai e-pasts jau eksistē
-      const res = await fetch(`${API_URL}/api/check-email`, {
+      const res = await fetch(apiUrl('/api/check-email'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
@@ -77,7 +76,7 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
       // E-pasts pieejams — pāriet uz segvārda soli
       setStep('nickname')
     } catch (err) {
-      setError('Tīkla kļūda. Pārliecinieties, ka backend darbojas vietnē http://localhost:4000')
+      setError('Tīkla kļūda. Pārliecinieties, ka backend ir sasniedzams.')
     } finally {
       setLoading(false)
     }
@@ -89,7 +88,7 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
     setLoading(true)
 
     try {
-      const response = await fetch(`${API_URL}/api/check-nickname`, {
+      const response = await fetch(apiUrl('/api/check-nickname'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nickname }),
@@ -107,7 +106,7 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
         setStep('login-prompt')
       } else {
         // Iestata segvārdu
-        const setResponse = await fetch(`${API_URL}/api/set-nickname`, {
+        const setResponse = await fetch(apiUrl('/api/set-nickname'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, nickname }),
@@ -125,7 +124,7 @@ const RegisterForm = ({ onRegisterSuccess, onSwitchMode, onNicknameSet, formStat
         setPassword('')
       }
     } catch (err) {
-      setError('Tīkla kļūda. Pārliecinieties, ka backend darbojas vietnē http://localhost:4000')
+      setError('Tīkla kļūda. Pārliecinieties, ka backend ir sasniedzams.')
     } finally {
       setLoading(false)
     }

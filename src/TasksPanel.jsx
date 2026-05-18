@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import './App.css'
-
-const API_BASE = 'http://localhost:4000'
+import { apiUrl } from './api'
 
 const formatTime = (secs) => {
   if (secs == null) return '—'
@@ -103,7 +102,7 @@ export default function TasksPanel({ onClose }) {
   const fetchTasks = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/api/tasks`, { headers })
+      const res = await fetch(apiUrl('/api/tasks'), { headers })
       const body = await res.json()
       if (res.ok) {
         // Atceļ dublikātus pēc nosaukuma (neatkarīgi no lielajiem/mazajiem burtiem) kā aizsardzības pasākums
@@ -161,7 +160,7 @@ export default function TasksPanel({ onClose }) {
       return
     }
     try {
-      const res = await fetch(`${API_BASE}/api/users/search?q=${encodeURIComponent(q)}`, { headers })
+      const res = await fetch(apiUrl(`/api/users/search?q=${encodeURIComponent(q)}`), { headers })
       const body = await res.json()
       if (res.ok) {
         setFriendResults(body.users || [])
@@ -179,7 +178,7 @@ export default function TasksPanel({ onClose }) {
     const payload = { title: title.trim(), xp: xpValue, durationSeconds: durationVal * 60 }
     if (selectedFriend) payload.friendId = selectedFriend.id
     try {
-      const res = await fetch(`${API_BASE}/api/tasks`, { method: 'POST', headers, body: JSON.stringify(payload) })
+      const res = await fetch(apiUrl('/api/tasks'), { method: 'POST', headers, body: JSON.stringify(payload) })
       const body = await res.json()
       if (res.ok) {
         setTitle('')
@@ -201,7 +200,7 @@ export default function TasksPanel({ onClose }) {
 
   const handleComplete = async (taskId) => {
     try {
-      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/complete`, { method: 'POST', headers })
+      const res = await fetch(apiUrl(`/api/tasks/${taskId}/complete`), { method: 'POST', headers })
       const body = await res.json()
       if (res.ok) {
         // Ja piešķirts XP (ne-koplietots) vai visi dalībnieki tagad pabeiguši (koplietots), pieprasa lietotnei atsvaidzināt lietotāju/mājdzīvnieku
